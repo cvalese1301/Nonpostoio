@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: nonposto-io
+    env: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: PCLOUD_REGION
+        value: eu
+      - key: PCLOUD_ACCESS_TOKEN
+        sync: false # Set in Render Dashboard settings
+      - key: OPENAI_API_KEY
+        sync: false # Optional, NonPosto has built-in AI engine
