@@ -42,8 +42,15 @@ export default function App() {
       const res = await fetch('/api/workspaces');
       const data = await res.json();
       setWorkspaces(data);
-      if (data.length > 0 && !activeWorkspace) {
-        setActiveWorkspace(data[0]);
+      if (data.length > 0) {
+        if (!activeWorkspace || !data.some(w => w.id === activeWorkspace.id)) {
+          setActiveWorkspace(data[0]);
+        }
+      } else {
+        setActiveWorkspace(null);
+        setChannels([]);
+        setPosts([]);
+        setNewClientOpen(true);
       }
     } catch (err) {
       console.error('Failed to load workspaces:', err);
@@ -179,12 +186,20 @@ export default function App() {
 
   // Open Composer helpers
   const openComposerNew = () => {
+    if (!activeWorkspace) {
+      setNewClientOpen(true);
+      return;
+    }
     setEditingPost(null);
     setComposerInitialDate(null);
     setComposerOpen(true);
   };
 
   const openComposerForDate = (day) => {
+    if (!activeWorkspace) {
+      setNewClientOpen(true);
+      return;
+    }
     setEditingPost(null);
     setComposerInitialDate(day);
     setComposerOpen(true);
@@ -230,16 +245,31 @@ export default function App() {
           pcloudStatus={pcloudStatus}
         />
 
-        {/* View Port: Interactive Drag-and-Drop Calendar */}
-        <CalendarView
-          posts={posts}
-          onReschedulePost={handleReschedulePost}
-          onDeletePost={handleDeletePost}
-          onDuplicatePost={handleDuplicatePost}
-          onEditPost={openComposerForEdit}
-          onOpenComposerForDate={openComposerForDate}
-          viewMode={viewMode}
-        />
+        {/* View Port: Interactive Drag-and-Drop Calendar or Welcome State */}
+        {activeWorkspace ? (
+          <CalendarView
+            posts={posts}
+            onReschedulePost={handleReschedulePost}
+            onDeletePost={handleDeletePost}
+            onDuplicatePost={handleDuplicatePost}
+            onEditPost={openComposerForEdit}
+            onOpenComposerForDate={openComposerForDate}
+            viewMode={viewMode}
+          />
+        ) : (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40, textAlign: 'center' }}>
+            <div style={{ width: 64, height: 64, borderRadius: 18, background: 'linear-gradient(135deg, #8B5CF6, #EC4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 0 25px rgba(139, 92, 246, 0.4)' }}>
+              <span style={{ fontSize: '2rem' }}>✨</span>
+            </div>
+            <h2 style={{ fontSize: '1.6rem', fontWeight: 700, marginBottom: 8, color: '#F8FAFC' }}>Benvenuto su NonPosto.io</h2>
+            <p style={{ color: '#94A3B8', maxWidth: 450, marginBottom: 24, fontSize: '0.92rem', lineHeight: 1.5 }}>
+              Nessun cliente o brand presente. Crea il tuo primo brand per iniziare a gestire e pianificare i tuoi 8 canali social in maniera ottimizzata.
+            </p>
+            <button className="btn-primary" style={{ padding: '12px 24px', fontSize: '0.95rem' }} onClick={() => setNewClientOpen(true)}>
+              + Crea il tuo primo Cliente/Brand
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Post Composer Modal */}
