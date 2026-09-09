@@ -403,6 +403,7 @@ export default function App() {
         channels={channels}
         onUpdateChannel={handleUpdateChannel}
         onRefreshChannels={() => activeWorkspace && fetchChannels(activeWorkspace.id)}
+        user={user}
       />
 
       {/* MCP AI Integration Modal */}

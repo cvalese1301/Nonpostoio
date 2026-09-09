@@ -1446,3 +1446,27 @@ button, input, textarea, select {
   background: rgba(139, 92, 246, 0.03) !important;
 }
 
+.btn-disconnect-channel {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  color: #F87171;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-disconnect-channel:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.btn-disconnect-channel:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+

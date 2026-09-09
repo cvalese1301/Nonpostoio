@@ -1,12 +1,20 @@
 const express = require('express');
 const multer = require('multer');
-const { all, run, get } = require('../db/database');
+const { all, run, get, ADMIN_EMAIL } = require('../db/database');
 const pcloudStorage = require('../services/pcloudStorage');
 const aiOptimizer = require('../services/aiOptimizer');
 const scheduler = require('../services/scheduler');
 const authService = require('../services/authService');
 const authMiddleware = require('../middleware/authMiddleware');
 const { MCP_TOOLS, handleMcpToolCall } = require('../mcp/mcpTools');
+
+// Middleware: require admin role
+function adminOnly(req, res, next) {
+  if (!req.user || req.user.is_admin !== 1) {
+    return res.status(403).json({ error: 'Accesso riservato all\'amministratore.' });
+  }
+  next();
+}
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB max
@@ -36,7 +44,7 @@ router.post('/auth/register', async (req, res) => {
       [name.trim(), cleanEmail, passwordHash, company.trim()]
     );
 
-    const user = await get('SELECT id, name, email, company, created_at FROM users WHERE id = ?', [result.id]);
+    const user = await get('SELECT id, name, email, company, is_admin, created_at FROM users WHERE id = ?', [result.id]);
     const token = authService.generateToken(user);
 
     res.json({ success: true, token, user });
@@ -63,7 +71,7 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenziali non valide. Verifica email e password.' });
     }
 
-    const safeUser = { id: user.id, name: user.name, email: user.email, company: user.company, created_at: user.created_at };
+    const safeUser = { id: user.id, name: user.name, email: user.email, company: user.company, is_admin: user.is_admin || 0, created_at: user.created_at };
     const token = authService.generateToken(safeUser);
 
     res.json({ success: true, token, user: safeUser });
@@ -73,7 +81,7 @@ router.post('/auth/login', async (req, res) => {
 });
 
 router.get('/auth/me', authMiddleware, (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: { ...req.user, is_admin: req.user.is_admin || 0 } });
 });
 
 // -------------------------------------------------------------
@@ -198,7 +206,32 @@ router.post('/channels/:id/connect', authMiddleware, async (req, res) => {
   }
 });
 
-// 1-Click Social OAuth Login & Connection (Seamless for End-Users)
+// Check which platforms have OAuth configured (for frontend)
+router.get('/oauth/status', authMiddleware, async (req, res) => {
+  try {
+    const rows = await all('SELECT key, value FROM settings WHERE key LIKE ?', ['oauth_%']);
+    const oauthSettings = {};
+    rows.forEach(r => { oauthSettings[r.key] = r.value; });
+
+    // Map to platform availability
+    const platforms = {
+      facebook: !!(oauthSettings.oauth_meta_app_id && oauthSettings.oauth_meta_app_secret),
+      instagram: !!(oauthSettings.oauth_meta_app_id && oauthSettings.oauth_meta_app_secret),
+      threads: !!(oauthSettings.oauth_meta_app_id && oauthSettings.oauth_meta_app_secret),
+      tiktok: !!(oauthSettings.oauth_tiktok_client_key && oauthSettings.oauth_tiktok_client_secret),
+      youtube: !!(oauthSettings.oauth_google_client_id && oauthSettings.oauth_google_client_secret),
+      google_business: !!(oauthSettings.oauth_google_client_id && oauthSettings.oauth_google_client_secret),
+      linkedin: !!(oauthSettings.oauth_linkedin_client_id && oauthSettings.oauth_linkedin_client_secret),
+      x: !!(oauthSettings.oauth_x_client_id && oauthSettings.oauth_x_client_secret)
+    };
+
+    res.json({ platforms });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// OAuth Login & Connection — only works if OAuth is configured for the platform
 router.post('/channels/:id/oauth-login', authMiddleware, async (req, res) => {
   try {
     const channelId = req.params.id;
@@ -221,11 +254,20 @@ router.post('/channels/:id/oauth-login', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Accesso non autorizzato a questo canale' });
     }
 
+    // Check if OAuth is configured for this platform
+    const oauthConfigured = await checkOAuthConfigured(ch.platform);
+    if (!oauthConfigured) {
+      return res.status(400).json({ 
+        error: `OAuth non configurato per ${ch.platform}. L'amministratore deve prima configurare le credenziali OAuth.`,
+        oauth_not_configured: true
+      });
+    }
+
     const cleanHandle = handle.trim().startsWith('@') ? handle.trim() : `@${handle.trim()}`;
     const syntheticToken = `oauth_${ch.platform}_token_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
 
     const oauthConfig = {
-      connected_via: '1-click-social-oauth',
+      connected_via: 'oauth',
       connected_at: new Date().toISOString(),
       access_token: syntheticToken,
       scopes: ['publish_posts', 'read_insights', 'manage_content']
@@ -251,13 +293,38 @@ router.post('/channels/:id/oauth-login', authMiddleware, async (req, res) => {
     const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
     res.json({
       success: true,
-      message: `Account ${updated.platform} collegato con successo tramite accesso social!`,
+      message: `Account ${updated.platform} collegato con successo!`,
       channel: updated
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Helper: check if OAuth credentials are configured for a platform
+async function checkOAuthConfigured(platform) {
+  const rows = await all('SELECT key, value FROM settings WHERE key LIKE ?', ['oauth_%']);
+  const s = {};
+  rows.forEach(r => { s[r.key] = r.value; });
+
+  switch (platform) {
+    case 'facebook':
+    case 'instagram':
+    case 'threads':
+      return !!(s.oauth_meta_app_id && s.oauth_meta_app_secret);
+    case 'tiktok':
+      return !!(s.oauth_tiktok_client_key && s.oauth_tiktok_client_secret);
+    case 'youtube':
+    case 'google_business':
+      return !!(s.oauth_google_client_id && s.oauth_google_client_secret);
+    case 'linkedin':
+      return !!(s.oauth_linkedin_client_id && s.oauth_linkedin_client_secret);
+    case 'x':
+      return !!(s.oauth_x_client_id && s.oauth_x_client_secret);
+    default:
+      return false;
+  }
+}
 
 // Disconnect channel
 router.post('/channels/:id/disconnect', authMiddleware, async (req, res) => {
@@ -630,7 +697,7 @@ router.get('/settings', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/settings', authMiddleware, async (req, res) => {
+router.post('/settings', authMiddleware, adminOnly, async (req, res) => {
   try {
     for (const [key, val] of Object.entries(req.body)) {
       if (val !== undefined && val !== null) {

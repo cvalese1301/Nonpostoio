@@ -46,6 +46,8 @@ function all(sql, params = []) {
   });
 }
 
+const ADMIN_EMAIL = 'christian.valese@dnacreativeagency.it';
+
 async function initDb() {
   await run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -54,9 +56,17 @@ async function initDb() {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       company TEXT,
+      is_admin INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migrate is_admin column if table already exists
+  try {
+    await run(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS workspaces (
@@ -153,6 +163,21 @@ async function seedInitialData() {
   await run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('pcloud_token', '')`);
   await run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('pcloud_region', 'eu')`);
   await run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('ai_provider', 'builtin')`);
+
+  // Seed admin account (never deleted)
+  const authService = require('../services/authService');
+  const existingAdmin = await get('SELECT id FROM users WHERE email = ?', [ADMIN_EMAIL]);
+  if (!existingAdmin) {
+    const passwordHash = authService.hashPassword('christian12');
+    await run(
+      'INSERT INTO users (name, email, password_hash, company, is_admin) VALUES (?, ?, ?, ?, 1)',
+      ['Admin', ADMIN_EMAIL, passwordHash, 'DNA Creative Agency']
+    );
+    console.log('[DB] Admin account created:', ADMIN_EMAIL);
+  } else {
+    // Ensure admin flag is set
+    await run('UPDATE users SET is_admin = 1 WHERE email = ?', [ADMIN_EMAIL]);
+  }
 }
 
 module.exports = {
@@ -160,5 +185,6 @@ module.exports = {
   run,
   get,
   all,
-  initDb
+  initDb,
+  ADMIN_EMAIL
 };
