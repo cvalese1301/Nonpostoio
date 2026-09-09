@@ -103,7 +103,7 @@ export default function Sidebar({
                 className="channel-quick-item" 
                 style={{ cursor: 'pointer' }}
                 onClick={onOpenChannelsModal}
-                title={isConnected ? `${meta.label}: ${ch.account_name} (${ch.handle})` : `Clicca per collegare ${meta.label} via API`}
+                title={isConnected ? `${meta.label}: ${ch.account_name} (${ch.handle})` : `Clicca per accedere e collegare ${meta.label}`}
               >
                 <div 
                   className="channel-dot" 
@@ -115,7 +115,7 @@ export default function Sidebar({
                 {isConnected ? (
                   <span style={{ fontSize: '0.65rem', color: '#10B981', fontWeight: 600 }}>collegato</span>
                 ) : (
-                  <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>non collegato</span>
+                  <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>+ collega</span>
                 )}
               </div>
             );
