@@ -96,19 +96,26 @@ export default function Sidebar({
         <div className="channel-quick-list">
           {channels.slice(0, 8).map((ch) => {
             const meta = PLATFORM_ICONS[ch.platform] || { label: ch.platform, color: '#8B5CF6' };
+            const isConnected = ch.active === 1 && ch.account_name;
             return (
-              <div key={ch.id} className="channel-quick-item" title={`${meta.label}: ${ch.account_name}`}>
+              <div 
+                key={ch.id} 
+                className="channel-quick-item" 
+                style={{ cursor: 'pointer' }}
+                onClick={onOpenChannelsModal}
+                title={isConnected ? `${meta.label}: ${ch.account_name} (${ch.handle})` : `Clicca per collegare ${meta.label} via API`}
+              >
                 <div 
                   className="channel-dot" 
-                  style={{ backgroundColor: ch.active ? meta.color : '#475569' }} 
+                  style={{ backgroundColor: isConnected ? meta.color : '#475569' }} 
                 />
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                   {meta.label}
                 </span>
-                {ch.active ? (
-                  <span style={{ fontSize: '0.65rem', color: '#10B981' }}>attivo</span>
+                {isConnected ? (
+                  <span style={{ fontSize: '0.65rem', color: '#10B981', fontWeight: 600 }}>collegato</span>
                 ) : (
-                  <span style={{ fontSize: '0.65rem', color: '#64748B' }}>off</span>
+                  <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>non collegato</span>
                 )}
               </div>
             );

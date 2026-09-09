@@ -260,10 +260,24 @@ export default function PostComposerModal({
           <form className="composer-form-pane" onSubmit={handleSubmit}>
             {/* 1. Channel Selector */}
             <div className="channel-multi-select">
-              <span className="label-hint">Seleziona Canali Destinatari ({selectedPlatforms.length}/8):</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="label-hint">Seleziona Canali Destinatari ({selectedPlatforms.length}/8):</span>
+                <span style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
+                  {channels.filter(c => c.active === 1).length}/8 canali collegati via API
+                </span>
+              </div>
+
+              {channels.filter(c => c.active === 1).length === 0 && (
+                <div style={{ padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: 8, fontSize: '0.78rem', color: '#FCD34D' }}>
+                  ⚠️ Nessun canale social è ancora collegato tramite API. Puoi scrivere e salvare le bozze, ma per pubblicare collega prima i tuoi account dalla sezione "Canali Social".
+                </div>
+              )}
+
               <div className="channel-selector-row">
                 {ALL_PLATFORMS.map(p => {
                   const isSelected = selectedPlatforms.includes(p.key);
+                  const isConnected = channels.some(c => c.platform === p.key && c.active === 1);
+
                   return (
                     <button
                       key={p.key}
@@ -271,13 +285,18 @@ export default function PostComposerModal({
                       className={`channel-toggle-btn ${isSelected ? 'selected' : ''}`}
                       onClick={() => togglePlatform(p.key)}
                       id={`composer-channel-${p.key}`}
+                      title={isConnected ? `${p.label} (Collegato)` : `${p.label} (Non ancora collegato via API)`}
                     >
                       <div 
                         className="channel-dot" 
-                        style={{ backgroundColor: p.color, width: 9, height: 9 }} 
+                        style={{ backgroundColor: isConnected ? p.color : '#64748B', width: 9, height: 9 }} 
                       />
                       <span>{p.label}</span>
-                      {isSelected && <Check size={14} color="#8B5CF6" />}
+                      {isConnected ? (
+                        <span style={{ fontSize: '0.65rem', color: '#10B981' }}>✓</span>
+                      ) : (
+                        <span style={{ fontSize: '0.62rem', color: '#94A3B8' }}>(off)</span>
+                      )}
                     </button>
                   );
                 })}

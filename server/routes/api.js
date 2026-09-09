@@ -32,22 +32,16 @@ router.post('/workspaces', async (req, res) => {
       [name, slug, logo_url, color]
     );
 
-    // Auto-create standard placeholder for all 8 channels for this new client
-    const defaultChannels = [
-      { platform: 'facebook', name: `${name} Official`, handle: `@${slug}` },
-      { platform: 'instagram', name: `${slug}_official`, handle: `@${slug}_official` },
-      { platform: 'tiktok', name: `${name} TikTok`, handle: `@${slug}` },
-      { platform: 'google_business', name: `${name} Sede`, handle: 'GMB Verified' },
-      { platform: 'linkedin', name: `${name}`, handle: slug },
-      { platform: 'threads', name: `${slug}_official`, handle: `@${slug}_official` },
-      { platform: 'x', name: name, handle: `@${slug}` },
-      { platform: 'youtube', name: `${name} Channel`, handle: `@${slug}` }
+    // Initialize the 8 platforms as disconnected (active = 0) with no fake demo data
+    const platformKeys = [
+      'facebook', 'instagram', 'tiktok', 'google_business',
+      'linkedin', 'threads', 'x', 'youtube'
     ];
 
-    for (const ch of defaultChannels) {
+    for (const plat of platformKeys) {
       await run(
-        'INSERT INTO channels (workspace_id, platform, account_name, handle, active) VALUES (?, ?, ?, ?, 1)',
-        [result.id, ch.platform, ch.name, ch.handle]
+        'INSERT INTO channels (workspace_id, platform, account_name, handle, avatar_url, active, config_json) VALUES (?, ?, ?, ?, ?, 0, ?)',
+        [result.id, plat, '', '', '', '{}']
       );
     }
 
@@ -81,7 +75,7 @@ router.delete('/workspaces/:id', async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// CHANNELS (8 Social Platforms)
+// CHANNELS (8 Social Platforms & API Connection)
 // -------------------------------------------------------------
 router.get('/channels', async (req, res) => {
   try {
@@ -93,6 +87,61 @@ router.get('/channels', async (req, res) => {
       [workspace_id]
     );
     res.json(channels);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Connect channel via API credentials
+router.post('/channels/:id/connect', async (req, res) => {
+  try {
+    const channelId = req.params.id;
+    const { account_name, handle, avatar_url, credentials = {} } = req.body;
+
+    if (!account_name || !handle) {
+      return res.status(400).json({ error: 'Nome account e handle sono obbligatori per il collegamento' });
+    }
+
+    await run(
+      `UPDATE channels 
+       SET account_name = ?,
+           handle = ?,
+           avatar_url = ?,
+           active = 1,
+           config_json = ?
+       WHERE id = ?`,
+      [
+        account_name.trim(),
+        handle.trim().startsWith('@') ? handle.trim() : `@${handle.trim()}`,
+        avatar_url || '',
+        JSON.stringify(credentials),
+        channelId
+      ]
+    );
+
+    const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+    res.json({ success: true, message: `Canale ${updated.platform} collegato con successo tramite API`, channel: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Disconnect channel
+router.post('/channels/:id/disconnect', async (req, res) => {
+  try {
+    const channelId = req.params.id;
+    await run(
+      `UPDATE channels 
+       SET account_name = '',
+           handle = '',
+           avatar_url = '',
+           active = 0,
+           config_json = '{}'
+       WHERE id = ?`,
+      [channelId]
+    );
+    const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+    res.json({ success: true, message: 'Canale disconnesso', channel: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
