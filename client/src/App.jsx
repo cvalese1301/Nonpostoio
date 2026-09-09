@@ -8,8 +8,15 @@ import ChannelsModal from './components/ChannelsModal.jsx';
 import McpModal from './components/McpModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import NewClientModal from './components/NewClientModal.jsx';
+import AuthModal from './components/AuthModal.jsx';
+import { getCurrentUser, logout as authLogout } from './services/auth.js';
 
 export default function App() {
+  // Authentication & Multi-Tenant User State
+  const [user, setUser] = useState(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [isInitializingAuth, setIsInitializingAuth] = useState(true);
+
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspace, setActiveWorkspace] = useState(null);
   const [channels, setChannels] = useState([]);
@@ -31,11 +38,70 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newClientOpen, setNewClientOpen] = useState(false);
 
-  // 1. Initial Load Workspaces
+  // 1. Initial Auth Check on App Load
   useEffect(() => {
-    fetchWorkspaces();
-    checkPcloudStatus();
+    async function checkAuthSession() {
+      try {
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+          setAuthModalOpen(false);
+        } else {
+          setUser(null);
+          setAuthModalOpen(true);
+        }
+      } catch (err) {
+        setUser(null);
+        setAuthModalOpen(true);
+      } finally {
+        setIsInitializingAuth(false);
+      }
+    }
+    checkAuthSession();
+
+    const handleUnauthorized = () => {
+      setUser(null);
+      setActiveWorkspace(null);
+      setWorkspaces([]);
+      setChannels([]);
+      setPosts([]);
+      setAuthModalOpen(true);
+    };
+
+    const handleLogout = () => {
+      setUser(null);
+      setActiveWorkspace(null);
+      setWorkspaces([]);
+      setChannels([]);
+      setPosts([]);
+      setAuthModalOpen(true);
+    };
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    window.addEventListener('auth:logout', handleLogout);
+
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('auth:logout', handleLogout);
+    };
   }, []);
+
+  // 2. Load Workspaces & Cloud status when User logs in
+  useEffect(() => {
+    if (user) {
+      fetchWorkspaces();
+      checkPcloudStatus();
+    }
+  }, [user?.id]);
+
+  const handleAuthSuccess = (authenticatedUser) => {
+    setUser(authenticatedUser);
+    setAuthModalOpen(false);
+  };
+
+  const handleLogout = () => {
+    authLogout();
+  };
 
   const fetchWorkspaces = async () => {
     try {
@@ -211,6 +277,38 @@ export default function App() {
     setComposerOpen(true);
   };
 
+  if (isInitializingAuth) {
+    return (
+      <div style={{
+        height: '100vh',
+        width: '100vw',
+        background: '#0B0F19',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#F8FAFC'
+      }}>
+        <div style={{
+          width: 48,
+          height: 48,
+          borderRadius: 14,
+          background: 'linear-gradient(135deg, #8B5CF6, #EC4899)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 16,
+          boxShadow: '0 0 25px rgba(139, 92, 246, 0.4)'
+        }}>
+          <span style={{ fontSize: '1.5rem' }}>✨</span>
+        </div>
+        <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#CBD5E1' }}>
+          Caricamento NonPosto.io...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {/* Sidebar */}
@@ -232,6 +330,8 @@ export default function App() {
       {/* Main Layout Area */}
       <div className="main-layout">
         <Header
+          user={user}
+          onLogout={handleLogout}
           workspaces={workspaces}
           activeWorkspace={activeWorkspace}
           onSelectWorkspace={(ws) => setActiveWorkspace(ws)}
@@ -328,6 +428,12 @@ export default function App() {
         isOpen={newClientOpen}
         onClose={() => setNewClientOpen(false)}
         onCreateClient={handleCreateClient}
+      />
+
+      {/* SaaS Authentication Modal */}
+      <AuthModal
+        isOpen={authModalOpen || !user}
+        onAuthSuccess={handleAuthSuccess}
       />
     </div>
   );

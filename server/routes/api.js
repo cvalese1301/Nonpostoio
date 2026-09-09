@@ -4,32 +4,99 @@ const { all, run, get } = require('../db/database');
 const pcloudStorage = require('../services/pcloudStorage');
 const aiOptimizer = require('../services/aiOptimizer');
 const scheduler = require('../services/scheduler');
+const authService = require('../services/authService');
+const authMiddleware = require('../middleware/authMiddleware');
 const { MCP_TOOLS, handleMcpToolCall } = require('../mcp/mcpTools');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB max
 
 // -------------------------------------------------------------
-// WORKSPACES (Multi-Account / Client Management)
+// AUTHENTICATION (SaaS User Registration, Login & Session)
 // -------------------------------------------------------------
-router.get('/workspaces', async (req, res) => {
+router.post('/auth/register', async (req, res) => {
   try {
-    const workspaces = await all('SELECT * FROM workspaces ORDER BY name ASC');
+    const { name, email, password, company = '' } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Nome, email e password sono obbligatori' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'La password deve contenere almeno 6 caratteri' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = await get('SELECT id FROM users WHERE email = ?', [cleanEmail]);
+    if (existing) {
+      return res.status(400).json({ error: 'Esiste già un account registrato con questa email' });
+    }
+
+    const passwordHash = authService.hashPassword(password);
+    const result = await run(
+      'INSERT INTO users (name, email, password_hash, company) VALUES (?, ?, ?, ?)',
+      [name.trim(), cleanEmail, passwordHash, company.trim()]
+    );
+
+    const user = await get('SELECT id, name, email, company, created_at FROM users WHERE id = ?', [result.id]);
+    const token = authService.generateToken(user);
+
+    res.json({ success: true, token, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e password obbligatorie' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await get('SELECT * FROM users WHERE email = ?', [cleanEmail]);
+    if (!user) {
+      return res.status(401).json({ error: 'Credenziali non valide. Verifica email e password.' });
+    }
+
+    const isValid = authService.verifyPassword(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Credenziali non valide. Verifica email e password.' });
+    }
+
+    const safeUser = { id: user.id, name: user.name, email: user.email, company: user.company, created_at: user.created_at };
+    const token = authService.generateToken(safeUser);
+
+    res.json({ success: true, token, user: safeUser });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/auth/me', authMiddleware, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// -------------------------------------------------------------
+// WORKSPACES (Multi-Account / Client Management isolato per utente)
+// -------------------------------------------------------------
+router.get('/workspaces', authMiddleware, async (req, res) => {
+  try {
+    const workspaces = await all('SELECT * FROM workspaces WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
     res.json(workspaces);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/workspaces', async (req, res) => {
+router.post('/workspaces', authMiddleware, async (req, res) => {
   try {
     const { name, logo_url = '', color = '#7C3AED' } = req.body;
     if (!name) return res.status(400).json({ error: 'Nome cliente/workspace obbligatorio' });
 
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString().slice(-4);
     const result = await run(
-      'INSERT INTO workspaces (name, slug, logo_url, color) VALUES (?, ?, ?, ?)',
-      [name, slug, logo_url, color]
+      'INSERT INTO workspaces (user_id, name, slug, logo_url, color) VALUES (?, ?, ?, ?, ?)',
+      [req.user.id, name, slug, logo_url, color]
     );
 
     // Initialize the 8 platforms as disconnected (active = 0) with no fake demo data
@@ -52,13 +119,14 @@ router.post('/workspaces', async (req, res) => {
   }
 });
 
-router.delete('/workspaces/:id', async (req, res) => {
+router.delete('/workspaces/:id', authMiddleware, async (req, res) => {
   try {
-    const count = await get('SELECT COUNT(*) as count FROM workspaces');
-    if (count.count <= 1) {
-      return res.status(400).json({ error: 'Non è possibile eliminare l\'unico workspace rimasto.' });
-    }
     const wsId = req.params.id;
+    const ws = await get('SELECT id FROM workspaces WHERE id = ? AND user_id = ?', [wsId, req.user.id]);
+    if (!ws) {
+      return res.status(404).json({ error: 'Workspace non trovato o non autorizzato.' });
+    }
+
     // Delete cascade posts & customizations
     const posts = await all('SELECT id FROM posts WHERE workspace_id = ?', [wsId]);
     for (const p of posts) {
@@ -77,10 +145,14 @@ router.delete('/workspaces/:id', async (req, res) => {
 // -------------------------------------------------------------
 // CHANNELS (8 Social Platforms & API Connection)
 // -------------------------------------------------------------
-router.get('/channels', async (req, res) => {
+router.get('/channels', authMiddleware, async (req, res) => {
   try {
     const { workspace_id } = req.query;
     if (!workspace_id) return res.status(400).json({ error: 'workspace_id richiesto' });
+
+    // Verify workspace belongs to user
+    const ws = await get('SELECT id FROM workspaces WHERE id = ? AND user_id = ?', [workspace_id, req.user.id]);
+    if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
 
     const channels = await all(
       'SELECT * FROM channels WHERE workspace_id = ? ORDER BY id ASC',
@@ -93,7 +165,7 @@ router.get('/channels', async (req, res) => {
 });
 
 // Connect channel via API credentials
-router.post('/channels/:id/connect', async (req, res) => {
+router.post('/channels/:id/connect', authMiddleware, async (req, res) => {
   try {
     const channelId = req.params.id;
     const { account_name, handle, avatar_url, credentials = {} } = req.body;
@@ -127,7 +199,7 @@ router.post('/channels/:id/connect', async (req, res) => {
 });
 
 // Disconnect channel
-router.post('/channels/:id/disconnect', async (req, res) => {
+router.post('/channels/:id/disconnect', authMiddleware, async (req, res) => {
   try {
     const channelId = req.params.id;
     await run(
@@ -147,7 +219,7 @@ router.post('/channels/:id/disconnect', async (req, res) => {
   }
 });
 
-router.put('/channels/:id', async (req, res) => {
+router.put('/channels/:id', authMiddleware, async (req, res) => {
   try {
     const { account_name, handle, avatar_url, active, config_json } = req.body;
     await run(
@@ -170,7 +242,7 @@ router.put('/channels/:id', async (req, res) => {
 // -------------------------------------------------------------
 // POSTS (Calendar, Composer, Drag & Drop, Recycle)
 // -------------------------------------------------------------
-router.get('/posts', async (req, res) => {
+router.get('/posts', authMiddleware, async (req, res) => {
   try {
     const { workspace_id, status, platform, month, year } = req.query;
     if (!workspace_id) return res.status(400).json({ error: 'workspace_id richiesto' });
@@ -209,7 +281,7 @@ router.get('/posts', async (req, res) => {
   }
 });
 
-router.post('/posts', async (req, res) => {
+router.post('/posts', authMiddleware, async (req, res) => {
   try {
     const {
       workspace_id,
@@ -224,6 +296,10 @@ router.post('/posts', async (req, res) => {
     if (!workspace_id || !base_content) {
       return res.status(400).json({ error: 'workspace_id e base_content sono obbligatori' });
     }
+
+    // Verify workspace belongs to user
+    const ws = await get('SELECT id FROM workspaces WHERE id = ? AND user_id = ?', [workspace_id, req.user.id]);
+    if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
 
     const postResult = await run(
       `INSERT INTO posts (workspace_id, title, base_content, status, scheduled_at, recycle_interval_days)
@@ -261,7 +337,7 @@ router.post('/posts', async (req, res) => {
   }
 });
 
-router.put('/posts/:id', async (req, res) => {
+router.put('/posts/:id', authMiddleware, async (req, res) => {
   try {
     const postId = req.params.id;
     const {
@@ -313,7 +389,7 @@ router.put('/posts/:id', async (req, res) => {
 });
 
 // Reschedule post directly (CALENDAR DRAG & DROP)
-router.patch('/posts/:id/reschedule', async (req, res) => {
+router.patch('/posts/:id/reschedule', authMiddleware, async (req, res) => {
   try {
     const { scheduled_at } = req.body;
     if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at mancante' });
@@ -331,7 +407,7 @@ router.patch('/posts/:id/reschedule', async (req, res) => {
 });
 
 // Duplicate / Recycle post
-router.post('/posts/:id/duplicate', async (req, res) => {
+router.post('/posts/:id/duplicate', authMiddleware, async (req, res) => {
   try {
     const orig = await get('SELECT * FROM posts WHERE id = ?', [req.params.id]);
     if (!orig) return res.status(404).json({ error: 'Post non trovato' });
@@ -361,7 +437,7 @@ router.post('/posts/:id/duplicate', async (req, res) => {
 });
 
 // Delete post
-router.delete('/posts/:id', async (req, res) => {
+router.delete('/posts/:id', authMiddleware, async (req, res) => {
   try {
     const postId = req.params.id;
     await run('DELETE FROM post_customizations WHERE post_id = ?', [postId]);
@@ -375,10 +451,17 @@ router.delete('/posts/:id', async (req, res) => {
 // -------------------------------------------------------------
 // MEDIA STORAGE & pCloud
 // -------------------------------------------------------------
-router.get('/media', async (req, res) => {
+// -------------------------------------------------------------
+// MEDIA STORAGE & pCloud
+// -------------------------------------------------------------
+router.get('/media', authMiddleware, async (req, res) => {
   try {
     const { workspace_id } = req.query;
     if (!workspace_id) return res.status(400).json({ error: 'workspace_id richiesto' });
+
+    // Verify workspace belongs to user
+    const ws = await get('SELECT id FROM workspaces WHERE id = ? AND user_id = ?', [workspace_id, req.user.id]);
+    if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
 
     const assets = await all(
       'SELECT * FROM media_assets WHERE workspace_id = ? ORDER BY created_at DESC',
@@ -390,13 +473,14 @@ router.get('/media', async (req, res) => {
   }
 });
 
-router.post('/media/upload', upload.single('file'), async (req, res) => {
+router.post('/media/upload', authMiddleware, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Nessun file fornito' });
     const { workspace_id, tags = '' } = req.body;
 
-    const ws = await get('SELECT * FROM workspaces WHERE id = ?', [workspace_id]);
-    const workspaceName = ws ? ws.name : 'Workspace';
+    const ws = await get('SELECT * FROM workspaces WHERE id = ? AND user_id = ?', [workspace_id, req.user.id]);
+    if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
+    const workspaceName = ws.name;
 
     // Upload via pCloud Service (with local zero-cost fallback)
     const uploadResult = await pcloudStorage.uploadFile({
@@ -428,7 +512,7 @@ router.post('/media/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-router.get('/storage/status', async (req, res) => {
+router.get('/storage/status', authMiddleware, async (req, res) => {
   try {
     const status = await pcloudStorage.testConnection();
     res.json(status);
@@ -440,7 +524,7 @@ router.get('/storage/status', async (req, res) => {
 // -------------------------------------------------------------
 // AI OPTIMIZER
 // -------------------------------------------------------------
-router.post('/ai/optimize', async (req, res) => {
+router.post('/ai/optimize', authMiddleware, async (req, res) => {
   try {
     const { base_text, platforms = [], tone = 'engaging', extra_context = '' } = req.body;
     if (!base_text) return res.status(400).json({ error: 'base_text richiesto' });
@@ -474,7 +558,7 @@ router.post('/mcp/call', async (req, res) => {
 // -------------------------------------------------------------
 // SETTINGS & BACKUP
 // -------------------------------------------------------------
-router.get('/settings', async (req, res) => {
+router.get('/settings', authMiddleware, async (req, res) => {
   try {
     const rows = await all('SELECT key, value FROM settings');
     const settings = {};
@@ -485,7 +569,7 @@ router.get('/settings', async (req, res) => {
   }
 });
 
-router.post('/settings', async (req, res) => {
+router.post('/settings', authMiddleware, async (req, res) => {
   try {
     const { pcloud_token, pcloud_region, ai_api_key, ai_provider } = req.body;
 
@@ -508,16 +592,29 @@ router.post('/settings', async (req, res) => {
   }
 });
 
-router.post('/settings/backup', async (req, res) => {
+router.post('/settings/backup', authMiddleware, async (req, res) => {
   try {
-    const workspaces = await all('SELECT * FROM workspaces');
-    const channels = await all('SELECT * FROM channels');
-    const posts = await all('SELECT * FROM posts');
-    const customizations = await all('SELECT * FROM post_customizations');
-    const media = await all('SELECT * FROM media_assets');
+    const workspaces = await all('SELECT * FROM workspaces WHERE user_id = ?', [req.user.id]);
+    const channels = await all(
+      'SELECT c.* FROM channels c JOIN workspaces w ON c.workspace_id = w.id WHERE w.user_id = ?',
+      [req.user.id]
+    );
+    const posts = await all(
+      'SELECT p.* FROM posts p JOIN workspaces w ON p.workspace_id = w.id WHERE w.user_id = ?',
+      [req.user.id]
+    );
+    const customizations = await all(
+      'SELECT pc.* FROM post_customizations pc JOIN posts p ON pc.post_id = p.id JOIN workspaces w ON p.workspace_id = w.id WHERE w.user_id = ?',
+      [req.user.id]
+    );
+    const media = await all(
+      'SELECT m.* FROM media_assets m JOIN workspaces w ON m.workspace_id = w.id WHERE w.user_id = ?',
+      [req.user.id]
+    );
 
     const backupData = {
       version: '1.0',
+      user: { id: req.user.id, email: req.user.email },
       exportedAt: new Date().toISOString(),
       workspaces,
       channels,

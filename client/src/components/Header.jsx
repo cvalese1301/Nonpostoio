@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   ChevronDown, Plus, Sparkles, Calendar, List, 
-  Layers, HardDrive, Cpu, Building2, Check, Cloud
+  Layers, HardDrive, Cpu, Building2, Check, Cloud, LogOut
 } from 'lucide-react';
 
 export default function Header({ 
+  user,
+  onLogout,
   workspaces = [], 
   activeWorkspace, 
   onSelectWorkspace, 
@@ -159,6 +161,28 @@ export default function Header({
           <Plus size={18} />
           <span>Nuovo Post</span>
         </button>
+
+        {/* User Account / SaaS Session */}
+        {user && (
+          <div className="user-profile-badge" title={`Account connesso: ${user.email}`}>
+            <div className="user-avatar-circle">
+              {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.78rem' }}>{user.name}</span>
+              {user.company && (
+                <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>{user.company}</span>
+              )}
+            </div>
+            <button 
+              className="user-logout-btn" 
+              onClick={onLogout}
+              title="Esci / Disconnetti account"
+            >
+              <LogOut size={15} />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

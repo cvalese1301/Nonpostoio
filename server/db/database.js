@@ -48,15 +48,35 @@ function all(sql, params = []) {
 
 async function initDb() {
   await run(`
-    CREATE TABLE IF NOT EXISTS workspaces (
+    CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      logo_url TEXT,
-      color TEXT DEFAULT '#7C3AED',
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      company TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      logo_url TEXT,
+      color TEXT DEFAULT '#7C3AED',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  // Migrate user_id column if table already exists
+  try {
+    await run(`ALTER TABLE workspaces ADD COLUMN user_id INTEGER`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS channels (
