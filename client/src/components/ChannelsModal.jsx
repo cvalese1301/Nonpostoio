@@ -203,8 +203,8 @@ export default function ChannelsModal({
     setConnectingPlatform(platformKey);
 
     // Open OAuth popup
-    const width = 520;
-    const height = 620;
+    const width = 560;
+    const height = 700;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
 
@@ -212,135 +212,157 @@ export default function ChannelsModal({
     const brandColor = channelMeta?.color || '#8B5CF6';
     const workspaceName = activeWorkspace?.name || 'il tuo Brand';
 
-    const popup = window.open(
-      'about:blank',
-      `oauth_${platformKey}`,
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,status=no,scrollbars=yes`
-    );
+    let popup;
+    if (channelMeta?.oauthGroup === 'meta') {
+      // LIVE META OAUTH (Facebook, Instagram, Threads)
+      const token = localStorage.getItem('nonposto_auth_token') || '';
+      const startUrl = `/api/oauth/meta/start?channel_id=${channelData.id}&platform=${platformKey}&token=${encodeURIComponent(token)}`;
+      popup = window.open(
+        startUrl,
+        `oauth_${platformKey}`,
+        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,status=no,scrollbars=yes`
+      );
+    } else {
+      // Fallback simulated OAuth for other platforms
+      popup = window.open(
+        'about:blank',
+        `oauth_${platformKey}`,
+        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,status=no,scrollbars=yes`
+      );
 
-    if (popup) {
-      popup.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Accesso ${brandName}</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              background: #f8f9fa;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              min-height: 100vh;
-              padding: 32px;
-              color: #1a1a2e;
-            }
-            .oauth-card {
-              background: white;
-              border-radius: 16px;
-              box-shadow: 0 8px 32px rgba(0,0,0,0.08);
-              padding: 40px 36px;
-              max-width: 420px;
-              width: 100%;
-              text-align: center;
-            }
-            .brand-icon {
-              width: 64px; height: 64px; border-radius: 16px;
-              background: ${brandColor};
-              display: flex; align-items: center; justify-content: center;
-              margin: 0 auto 20px; color: white; font-size: 28px; font-weight: bold;
-            }
-            h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #111; }
-            p { font-size: 14px; color: #666; line-height: 1.5; margin-bottom: 24px; }
-            .permissions {
-              background: #f0f4ff; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left;
-            }
-            .permissions h4 { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 8px; }
-            .perm-item {
-              display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: #555;
-            }
-            .perm-item::before { content: '✓'; color: ${brandColor}; font-weight: bold; }
-            .spinner {
-              width: 40px; height: 40px;
-              border: 3px solid #e0e0e0; border-top: 3px solid ${brandColor};
-              border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
-            }
-            @keyframes spin { to { transform: rotate(360deg); } }
-            .success-icon {
-              width: 56px; height: 56px; border-radius: 50%; background: #22c55e;
-              display: flex; align-items: center; justify-content: center;
-              margin: 0 auto 16px; color: white; font-size: 28px;
-            }
-            .btn-authorize {
-              width: 100%; padding: 14px 24px; background: ${brandColor}; color: white;
-              border: none; border-radius: 12px; font-size: 15px; font-weight: 600;
-              cursor: pointer; transition: all 0.2s;
-            }
-            .btn-authorize:hover { filter: brightness(1.1); transform: translateY(-1px); }
-            .btn-authorize:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-            .footer-text { font-size: 11px; color: #999; margin-top: 16px; }
-            .phase-connecting, .phase-success { display: none; }
-            .phase-connecting.active, .phase-success.active, .phase-auth.active { display: block; }
-          </style>
-        </head>
-        <body>
-          <div class="oauth-card">
-            <div id="phase-auth" class="phase-auth active">
-              <div class="brand-icon">${brandName.charAt(0).toUpperCase()}</div>
-              <h2>Accedi a ${brandName}</h2>
-              <p>Autorizza <strong>NonPosto.io</strong> ad accedere al tuo account ${brandName} per pubblicare contenuti per conto di <strong>${workspaceName}</strong>.</p>
-              <div class="permissions">
-                <h4>NonPosto.io richiede i permessi per:</h4>
-                <div class="perm-item">Pubblicare contenuti sul tuo profilo</div>
-                <div class="perm-item">Leggere le informazioni del tuo account</div>
-                <div class="perm-item">Gestire i post programmati</div>
-              </div>
-              <button class="btn-authorize" id="btn-auth" onclick="authorize()">
-                Autorizza e Collega
-              </button>
-              <div class="footer-text">Accedendo, accetti i termini di servizio di NonPosto.io</div>
-            </div>
-            <div id="phase-connecting" class="phase-connecting">
-              <div class="spinner"></div>
-              <h2>Collegamento in corso...</h2>
-              <p>Stiamo collegando il tuo account ${brandName}. Attendi qualche secondo.</p>
-            </div>
-            <div id="phase-success" class="phase-success">
-              <div class="success-icon">✓</div>
-              <h2>Account Collegato!</h2>
-              <p>Il tuo account ${brandName} è stato collegato con successo a <strong>${workspaceName}</strong>.</p>
-            </div>
-          </div>
-          <script>
-            function authorize() {
-              document.getElementById('btn-auth').disabled = true;
-              document.getElementById('phase-auth').classList.remove('active');
-              document.getElementById('phase-connecting').classList.add('active');
-              if (window.opener) {
-                window.opener.postMessage({ type: 'oauth_connecting', platform: '${platformKey}' }, '*');
+      if (popup) {
+        popup.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Accesso ${brandName}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #f8f9fa;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                padding: 32px;
+                color: #1a1a2e;
               }
-              setTimeout(function() {
-                document.getElementById('phase-connecting').classList.remove('active');
-                document.getElementById('phase-success').classList.add('active');
+              .oauth-card {
+                background: white;
+                border-radius: 16px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+                padding: 40px 36px;
+                max-width: 420px;
+                width: 100%;
+                text-align: center;
+              }
+              .brand-icon {
+                width: 64px; height: 64px; border-radius: 16px;
+                background: ${brandColor};
+                display: flex; align-items: center; justify-content: center;
+                margin: 0 auto 20px; color: white; font-size: 28px; font-weight: bold;
+              }
+              h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #111; }
+              p { font-size: 14px; color: #666; line-height: 1.5; margin-bottom: 24px; }
+              .permissions {
+                background: #f0f4ff; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left;
+              }
+              .permissions h4 { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 8px; }
+              .perm-item {
+                display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: #555;
+              }
+              .perm-item::before { content: '✓'; color: ${brandColor}; font-weight: bold; }
+              .spinner {
+                width: 40px; height: 40px;
+                border: 3px solid #e0e0e0; border-top: 3px solid ${brandColor};
+                border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+              }
+              @keyframes spin { to { transform: rotate(360deg); } }
+              .success-icon {
+                width: 56px; height: 56px; border-radius: 50%; background: #22c55e;
+                display: flex; align-items: center; justify-content: center;
+                margin: 0 auto 16px; color: white; font-size: 28px;
+              }
+              .btn-authorize {
+                width: 100%; padding: 14px 24px; background: ${brandColor}; color: white;
+                border: none; border-radius: 12px; font-size: 15px; font-weight: 600;
+                cursor: pointer; transition: all 0.2s;
+              }
+              .btn-authorize:hover { filter: brightness(1.1); transform: translateY(-1px); }
+              .btn-authorize:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+              .footer-text { font-size: 11px; color: #999; margin-top: 16px; }
+              .phase-connecting, .phase-success { display: none; }
+              .phase-connecting.active, .phase-success.active, .phase-auth.active { display: block; }
+            </style>
+          </head>
+          <body>
+            <div class="oauth-card">
+              <div id="phase-auth" class="phase-auth active">
+                <div class="brand-icon">${brandName.charAt(0).toUpperCase()}</div>
+                <h2>Accedi a ${brandName}</h2>
+                <p>Autorizza <strong>NonPosto.io</strong> ad accedere al tuo account ${brandName} per pubblicare contenuti per conto di <strong>${workspaceName}</strong>.</p>
+                <div class="permissions">
+                  <h4>NonPosto.io richiede i permessi per:</h4>
+                  <div class="perm-item">Pubblicare contenuti sul tuo profilo</div>
+                  <div class="perm-item">Leggere le informazioni del tuo account</div>
+                  <div class="perm-item">Gestire i post programmati</div>
+                </div>
+                <button class="btn-authorize" id="btn-auth" onclick="authorize()">
+                  Autorizza e Collega
+                </button>
+                <div class="footer-text">Accedendo, accetti i termini di servizio di NonPosto.io</div>
+              </div>
+              <div id="phase-connecting" class="phase-connecting">
+                <div class="spinner"></div>
+                <h2>Collegamento in corso...</h2>
+                <p>Stiamo collegando il tuo account ${brandName}. Attendi qualche secondo.</p>
+              </div>
+              <div id="phase-success" class="phase-success">
+                <div class="success-icon">✓</div>
+                <h2>Account Collegato!</h2>
+                <p>Il tuo account ${brandName} è stato collegato con successo a <strong>${workspaceName}</strong>.</p>
+              </div>
+            </div>
+            <script>
+              function authorize() {
+                document.getElementById('btn-auth').disabled = true;
+                document.getElementById('phase-auth').classList.remove('active');
+                document.getElementById('phase-connecting').classList.add('active');
                 if (window.opener) {
-                  window.opener.postMessage({ type: 'oauth_success', platform: '${platformKey}' }, '*');
+                  window.opener.postMessage({ type: 'oauth_connecting', platform: '${platformKey}' }, '*');
                 }
-                setTimeout(function() { window.close(); }, 1800);
-              }, 2200);
-            }
-          </script>
-        </body>
-        </html>
-      `);
-      popup.document.close();
+                setTimeout(function() {
+                  document.getElementById('phase-connecting').classList.remove('active');
+                  document.getElementById('phase-success').classList.add('active');
+                  if (window.opener) {
+                    window.opener.postMessage({ type: 'oauth_success', platform: '${platformKey}' }, '*');
+                  }
+                  setTimeout(function() { window.close(); }, 1800);
+                }, 2200);
+              }
+            </script>
+          </body>
+          </html>
+        `);
+        popup.document.close();
+      }
     }
 
     // Listen for messages from popup
     const handleMessage = async (event) => {
-      if (event.data?.type === 'oauth_success' && event.data?.platform === platformKey) {
+      if (event.data?.type === 'oauth_success' && (event.data?.platform === platformKey || !event.data?.platform)) {
         window.removeEventListener('message', handleMessage);
+
+        if (channelMeta?.oauthGroup === 'meta') {
+          // Real Live Meta OAuth already persisted in backend
+          setConnectSuccess(platformKey);
+          if (onRefreshChannels) await onRefreshChannels();
+          timerRef.current = setTimeout(() => setConnectSuccess(null), 3000);
+          setConnectingPlatform(null);
+          return;
+        }
 
         try {
           const res = await fetch(`/api/channels/${channelData.id}/oauth-login`, {
@@ -366,6 +388,9 @@ export default function ChannelsModal({
           alert('Errore di connessione con il server.');
         }
 
+        setConnectingPlatform(null);
+      } else if (event.data?.type === 'oauth_error') {
+        window.removeEventListener('message', handleMessage);
         setConnectingPlatform(null);
       }
     };

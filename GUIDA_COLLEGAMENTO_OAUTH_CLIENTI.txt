@@ -1,0 +1,364 @@
+================================================================================
+           NONPOSTO.IO - GUIDA COMPLETA & SUPER-DETTAGLIATA OAUTH MULTI-CLIENTE
+================================================================================
+Versione: 2.0 (Aggiornata con i nuovi Casi d'Uso Meta 2024/2026)
+Piattaforma: NonPosto.io - Social Media Management & Scheduling Platform
+Target: Amministratori di Sistema, Social Media Manager, Agenzie e Clienti
+================================================================================
+
+
+INDICE DELLA GUIDA
+--------------------------------------------------------------------------------
+1. ARCHITETTURA MULTI-CLIENTE DI NONPOSTO.IO (COME FUNZIONA)
+2. FASE 1: CONFIGURAZIONE MASTER OAUTH - GUIDA SVILUPPATORE (UNA TANTUM)
+   - 2.1 META FOR DEVELOPERS (Facebook, Instagram, Threads)
+         * 2.1.1 I Nuovi Casi d'Uso (Use Cases) di Meta nel Dettaglio
+         * 2.1.2 Permessi e Scopes Esatti per Piattaforma
+         * 2.1.3 Come Aggiungere Più Casi d'Uso alla Stessa App
+         * 2.1.4 Modalità di Sviluppo (Dev Mode) vs Modalità Live (Produzione)
+         * 2.1.5 Come testare subito con i clienti senza App Review (Ruolo Tester)
+   - 2.2 GOOGLE CLOUD CONSOLE (YouTube, Google Business Profile)
+   - 2.3 TIKTOK FOR DEVELOPERS (TikTok Video & Content Posting)
+   - 2.4 LINKEDIN DEVELOPER PORTAL (Profili personali e Pagine Aziendali)
+   - 2.5 X / TWITTER DEVELOPER PORTAL (X API v2)
+3. FASE 2: GUIDA OPERATIVA PER IL COLLEGAMENTO DI OGNI SINGOLO CLIENTE
+4. FASE 3: METODO ALTERNATIVO (COLLEGAMENTO MANUALE VIA CREDENZIALI API)
+5. REQUISITI TECNICI RIGOROSI PER GLI ACCOUNT SOCIAL DEI CLIENTI
+6. RISOLUZIONE PROBLEMI, ERRORI FREQUENTI E FAQ
+
+
+================================================================================
+1. ARCHITETTURA MULTI-CLIENTE DI NONPOSTO.IO (COME FUNZIONA)
+================================================================================
+
+NonPosto.io è progettato secondo un modello multi-tenant professionale:
+
+  [AGENZIA / AMMINISTRATORE]
+              │
+              ▼ (Crea e configura le Master App sui portali sviluppatori)
+     [Master Settings NonPosto.io]
+     (Meta App ID/Secret, Google Client ID, TikTok Key, LinkedIn ID, X Keys)
+              │
+      ┌───────┴───────────────────────┐
+      ▼                               ▼
+  [CLIENTE 1: Brand Moda]         [CLIENTE 2: Ristorante Gourmet]
+   - Pagina Facebook "Moda"        - Pagina Facebook "Ristorante"
+   - Account IG @modabrand         - Account IG @ristorante_gourmet
+   - TikTok @modaofficial          - Scheda Google Maps "Ristorante"
+   - Canale YouTube Moda           - Profilo LinkedIn Ristorante
+   (Pianificazione isolata)        (Pianificazione isolata)
+
+I TUOI CLIENTI NON DEVONO DIVENTARE SVILUPPATORI:
+Una volta che l'Admin ha configurato le credenziali Master, per qualunque cliente
+aggiunto sulla piattaforma il collegamento richiederà semplicemente un clic sul pulsante
+"Collega con OAuth" e l'accesso al proprio account social.
+
+
+================================================================================
+2. FASE 1: CONFIGURAZIONE MASTER OAUTH - GUIDA SVILUPPATORE (UNA TANTUM)
+================================================================================
+
+Questa configurazione iniziale viene eseguita una sola volta per tutta la piattaforma.
+
+
+--------------------------------------------------------------------------------
+2.1 META FOR DEVELOPERS (Facebook, Instagram, Threads)
+--------------------------------------------------------------------------------
+Portale Ufficiale: https://developers.facebook.com/
+
+Meta ha aggiornato la creazione delle app introducendo i "Casi d'Uso" (Use Cases)
+per determinare quali funzionalità abilitare. Ecco la procedura passo-passo esatta:
+
+PASSO 1: CREAZIONE DELL'APPLICAZIONE
+1. Accedi a https://developers.facebook.com con il tuo profilo Facebook.
+2. In alto a destra, clicca su "Le mie app" > "Crea un'app".
+3. A seconda della versione dell'interfaccia di Meta che ti viene mostrata:
+   - Se ti mostra "Cosa vuoi che faccia la tua app?":
+     Seleziona "Altro" (Other) e poi clicca su "Avanti".
+   - Nella schermata del Tipo di App: seleziona "Business" (scelta consigliata
+     per strumenti di pubblicazione su Pagine Facebook e Account Instagram).
+4. Assegna il "Nome visualizzato dell'app" (es. "NonPosto Social Manager").
+5. Inserisci l'email di contatto e seleziona il tuo Business Manager Meta (se presente).
+6. Clicca su "Crea app".
+
+
+2.1.1 I NUOVI CASI D'USO (USE CASES) DI META NEL DETTAGLIO
+Dalla dashboard dell'app creata, vai nel menu a sinistra sotto "Casi d'uso" (Use Cases)
+oppure clicca su "Aggiungi caso d'uso" (Add Use Case).
+
+Per NonPosto.io devi configurare questi 3 CASI D'USO SPECIFICI:
+
+CASO D'USO A: "GESTIONE DELLE PAGINE FACEBOOK" (Facebook Login for Business)
+- Titolo esatto in Meta: "Gestisci e accedi alle Pagine Facebook" oppure "Facebook Login for Business"
+- Scopo: Permette a NonPosto di leggere l'elenco delle Pagine Facebook del cliente e pubblicare post, immagini e video.
+- Permessi (Scopes) obbligatori da aggiungere all'interno di questo caso d'uso:
+  * pages_show_list         -> visualizza l'elenco delle Pagine gestite dall'utente
+  * pages_read_engagement   -> legge i dati di base e l'ID della Pagina
+  * pages_manage_posts      -> crea e pubblica post direttamente sulla bacheca della Pagina
+  * public_profile          -> informazioni profilo base dell'utente
+
+CASO D'USO B: "INSTAGRAM GRAPH API" (Coinvolgi il pubblico su Instagram)
+- Titolo esatto in Meta: "Coinvolgi il tuo pubblico su Instagram" oppure "Instagram Graph API"
+- Scopo: Permette la pubblicazione automatica di foto singole, caroselli e Reels sul profilo Instagram Professionale del cliente.
+- Permessi (Scopes) obbligatori da aggiungere all'interno di questo caso d'uso:
+  * instagram_basic             -> legge le informazioni e l'Instagram Business ID
+  * instagram_content_publish   -> carica foto/video e pubblica nel feed o Reels
+  * pages_show_list             -> fondamentale: Instagram si collega tramite la Pagina Facebook associata
+
+CASO D'USO C: "THREADS API" (Threads Content Publishing)
+- Titolo esatto in Meta: "Threads" (caso d'uso dedicato introdotto da Meta per la nuova piattaforma)
+- Scopo: Permette la creazione di thread testuali, immagini e link sul profilo Threads.
+- Permessi (Scopes) obbligatori da aggiungere:
+  * threads_basic               -> legge informazioni base dell'account Threads
+  * threads_content_publish     -> pubblica post e thread sull'account
+
+
+2.1.2 COME AGGIUNGERE PIÙ CASI D'USO ALLA STESSA APP
+Se durante la creazione iniziale Meta ti ha permesso di selezionare solo un caso d'uso:
+1. Completa la creazione con il primo (es. Facebook Login for Business).
+2. Entra nella dashboard della tua app su Meta.
+3. Nel menu laterale sinistro, clicca sulla voce "Casi d'uso" (Use Cases).
+4. Clicca sul pulsante in alto a destra "Aggiungi caso d'uso" (Add use case).
+5. Seleziona "Instagram" e configura i permessi.
+6. Ripeti cliccando su "Aggiungi caso d'uso", seleziona "Threads" e configura i permessi.
+
+
+2.1.3 CONFIGURAZIONE DEGLI URL DI REINDIRIZZAMENTO (OAUTH REDIRECT URI)
+1. Nel menu a sinistra, sotto il caso d'uso "Facebook Login for Business", clicca su "Impostazioni".
+2. Trova il campo "URI di reindirizzamento OAuth validi" (Valid OAuth Redirect URIs).
+3. Inserisci:
+   - Per produzione: https://tuo-dominio.com/api/channels/oauth-callback
+   - Per test locale: http://localhost:3000/api/channels/oauth-callback
+4. Scorri in basso e clicca su "Salva modifiche".
+
+
+2.1.4 RECUPERO DI ID APP E CHIAVE SEGRETA
+1. Nel menu a sinistra, clicca su "Impostazioni dell'app" > "Di base" (App Settings > Basic).
+2. Qui troverai:
+   - "ID app" (App ID): una stringa numerica di 15-16 cifre.
+   - "Chiave segreta dell'app" (App Secret): clicca su "Mostra" e inserisci la password di Facebook per visualizzarla.
+3. Copia entrambi i valori.
+4. Apri NonPosto.io > Accedi come Admin > vai in "Impostazioni & Cloud" oppure apri "Canali Social" > "Pannello Sviluppatore / Master OAuth".
+5. Incolla i valori nei campi:
+   - Meta App ID: [il tuo App ID]
+   - Meta App Secret: [il tuo App Secret]
+6. Clicca su "Salva Credenziali Master".
+
+
+2.1.5 MODALITÀ SVILUPPO (DEV MODE) VS LIVE MODE (COME TESTARE SUBITO CON I CLIENTI)
+- MODALITÀ SVILUPPO (Predefinita):
+  L'app è immediatamente funzionante al 100%, ma solo per gli account che hanno un ruolo nell'app.
+  -> TRUCCO PER TESTARE SUBITO CON QUALSIASI CLIENTE:
+     Nel portale Meta, vai su "Ruoli dell'app" > "Ruoli" (App Roles > Roles).
+     Clicca su "Aggiungi tester" e inserisci il nome utente o l'ID Facebook del cliente.
+     Il cliente accetta l'invito su https://developers.facebook.com/requests e potrà
+     collegare la sua pagina a NonPosto.io IMMEDIATAMENTE, senza attendere verifiche!
+
+- MODALITÀ LIVE (Produzione aperta al pubblico):
+  Per rendere l'app utilizzabile da chiunque senza invitarlo come tester:
+  1. Verifica Aziendale (Business Verification): vai su Impostazioni > Di base e associa il Meta Business Manager dell'agenzia caricando una visura camerale.
+  2. Verifica delle Autorizzazioni (App Review): invia i permessi `pages_manage_posts` e `instagram_content_publish` per l'approvazione di Meta con un breve video registrato dell'interfaccia di NonPosto mentre programma un post.
+
+
+--------------------------------------------------------------------------------
+2.2 GOOGLE CLOUD CONSOLE (YouTube, Google Business Profile)
+--------------------------------------------------------------------------------
+Portale Ufficiale: https://console.cloud.google.com/
+
+1. Accedi con il tuo account Google a Google Cloud Console.
+2. Crea un nuovo Progetto cliccando sul selettore in alto > "Nuovo progetto" (es. "NonPosto Social Agency").
+3. ABILITAZIONE API:
+   - Vai nel menu a sinistra su "API e servizi" > "Libreria".
+   - Cerca e abilita:
+     * "YouTube Data API v3"
+     * "Google Business Profile API"
+     * "My Business Business Information API"
+4. SCHERMATA DI CONSENSO OAUTH:
+   - Vai su "API e servizi" > "Schermata consenso OAuth".
+   - Seleziona Tipo utente: "Esterno" e clicca su "Crea".
+   - Nome app: "NonPosto Hub".
+   - Email di assistenza utente: la tua email.
+   - Aggiungi gli Scopes (Ambiti):
+     * `https://www.googleapis.com/auth/youtube.upload`
+     * `https://www.googleapis.com/auth/business.manage`
+5. CREA CREDENZIALI OAUTH:
+   - Vai su "API e servizi" > "Credenziali" > "Crea credenziali" > "ID client OAuth".
+   - Tipo di applicazione: "Applicazione web".
+   - Nome: "NonPosto Web Client".
+   - Origini JavaScript autorizzate: `https://tuo-dominio.com` (o `http://localhost:3000`)
+   - URI di reindirizzamento autorizzati: `https://tuo-dominio.com/api/channels/oauth-callback`
+6. Recupera "ID client" e "Segreto client" e incollali in NonPosto.io nei campi Google OAuth.
+
+
+--------------------------------------------------------------------------------
+2.3 TIKTOK FOR DEVELOPERS (TikTok Video & Content Posting)
+--------------------------------------------------------------------------------
+Portale Ufficiale: https://developers.tiktok.com/
+
+1. Crea o accedi al tuo account sviluppatore su https://developers.tiktok.com.
+2. Vai su "Manage Apps" > "Create an App".
+3. Compila il nome dell'app, logo e categoria ("Marketing / Social Management").
+4. Nella sezione "Add Products", abilita:
+   - "Content Posting API" (richiede ambiti `video.upload` e `video.publish`)
+   - "Login Kit"
+5. Nella scheda "Basic Settings" troverai:
+   - "Client Key"
+   - "Client Secret"
+6. Incolla questi due valori in NonPosto.io nei campi TikTok OAuth.
+
+
+--------------------------------------------------------------------------------
+2.4 LINKEDIN DEVELOPER PORTAL (Profili personali e Pagine Aziendali)
+--------------------------------------------------------------------------------
+Portale Ufficiale: https://developer.linkedin.com/
+
+1. Accedi a developer.linkedin.com con il tuo profilo LinkedIn.
+2. Clicca su "Create App".
+3. Inserisci il nome dell'app e collega l'URL della Pagina LinkedIn della tua Agenzia (verrà inviata una notifica di conferma alla pagina per certificare l'app).
+4. Nella scheda "Products", seleziona:
+   - "Share on LinkedIn"
+   - "Sign In with LinkedIn using OpenID Connect"
+5. Nella scheda "Auth":
+   - Troverai "Client ID" e "Client Secret".
+   - Inserisci in "Authorized redirect URLs for your app" l'URL di NonPosto.
+6. Incolla Client ID e Client Secret in NonPosto.io nei campi LinkedIn OAuth.
+
+
+--------------------------------------------------------------------------------
+2.5 X / TWITTER DEVELOPER PORTAL (X API v2)
+--------------------------------------------------------------------------------
+Portale Ufficiale: https://developer.x.com/en/portal/dashboard
+
+1. Accedi al portale con il tuo account X.
+2. Attiva il piano sviluppatore (il livello Free permette la pubblicazione di post).
+3. Crea un "Project" e associa una nuova "App".
+4. In "User authentication settings":
+   - Seleziona "OAuth 2.0" e "OAuth 1.0a".
+   - App permissions: seleziona obbligatoriamente "Read and Write".
+   - Type of App: "Web App".
+   - Callback / Redirect URL: inserisci il tuo URL di NonPosto.
+5. Nella scheda "Keys and Tokens":
+   - Copia "OAuth 2.0 Client ID" e "Client Secret".
+6. Inserisci i dati in NonPosto.io nei campi X OAuth.
+
+
+================================================================================
+3. FASE 2: GUIDA OPERATIVA PER IL COLLEGAMENTO DI OGNI SINGOLO CLIENTE
+================================================================================
+
+Una volta completata la Fase 1, la configurazione per ogni nuovo cliente
+richiede letteralmente 30 secondi.
+
+--------------------------------------------------------------------------------
+FLUSSO PASSO-PASSO PER AGGIUNGERE UN CANALE AD UN CLIENTE:
+--------------------------------------------------------------------------------
+
+1. APRI IL WORKSPACE DEL CLIENTE:
+   - In alto nell'header di NonPosto.io, clicca sul selettore "Cliente / Brand".
+   - Seleziona il cliente desiderato (es. "Barilla").
+   - Se è un nuovo cliente, clicca su "+ Nuovo Cliente" inserendo nome e colore brand.
+
+2. ACCEDI ALLA SEZIONE CANALI SOCIAL:
+   - Clicca sulla voce "Canali Social (8)" nel menu laterale sinistro.
+   - Vedrai le 8 schede dedicate a ciascuna piattaforma.
+
+3. AVVIA IL COLLEGAMENTO OAUTH:
+   - Clicca sul pulsante azzurro/viola "[ 🔗 Collega con OAuth ]" sulla scheda
+     del social desiderato (es. Instagram o Facebook).
+
+4. AUTORIZZAZIONE NEL POPUP DEDICATO:
+   - Si aprirà una finestra popup sicura e protetta.
+   - Se il cliente è presente al computer: effettua l'accesso al proprio social.
+   - Se gestisci tu i canali: accedi con il profilo che amministra la pagina del brand.
+   - Clicca su "Autorizza e Collega".
+   - Se gestisci più pagine o account Instagram, seleziona la pagina specifica del brand.
+
+5. CONFERMA AUTOMATICA:
+   - La finestra si chiuderà da sola con spunta verde di successo.
+   - La card su NonPosto.io mostrerà immediatamente:
+     * Pallino verde e badge "Collegato via API"
+     * Nome dell'account social
+     * Handle con chiocciola (es. `@nomebrand`)
+     * Pulsante "Disconnetti" in caso di necessità
+
+6. DA QUESTO MOMENTO:
+   - Aprendo il "Compositore Post", il canale del cliente sarà selezionabile con un clic.
+   - Tutti i post pubblicati appariranno direttamente sul canale social reale!
+
+
+================================================================================
+4. FASE 3: METODO ALTERNATIVO (COLLEGAMENTO MANUALE VIA CREDENZIALI API)
+================================================================================
+
+Se un cliente ha un reparto IT interno o preferisce fornirti direttamente
+token di lunga durata o chiavi API personali senza passare dal popup:
+
+1. Apri "Canali Social" per quel cliente.
+2. Clicca su "Inserisci Credenziali Manuali" sotto la card del social.
+3. Incolla i parametri richiesti per quel canale:
+   - Meta/Facebook: Facebook Page ID + Long-Lived Page Access Token
+   - Instagram: Instagram Business Account ID + Graph API Token
+   - Google Business: Google Location ID + OAuth Token
+   - LinkedIn: Organization URN (`urn:li:organization:12345678`) + Token
+   - TikTok: TikTok OpenID + Access Token
+   - X (Twitter): API Key, API Secret, Access Token, Access Token Secret
+   - YouTube: YouTube Channel ID (`UC...`) + Access Token
+4. Clicca su "Salva e Collega Manualmente": il canale risulterà attivo all'istante.
+
+
+================================================================================
+5. REQUISITI TECNICI RIGOROSI PER GLI ACCOUNT SOCIAL DEI CLIENTI
+================================================================================
+
+Per evitare errori durante la pubblicazione, verifica questi requisiti fondamentali:
+
+1. INSTAGRAM:
+   - L'account DEVE essere "Professionale" (Aziendale o Creator).
+   - Verifica: su Instagram app > Impostazioni > Tipo di account > "Passa a un account professionale".
+   - L'account Instagram DEVE essere collegato alla Pagina Facebook ufficiale del cliente.
+
+2. FACEBOOK:
+   - L'utente che esegue l'OAuth deve avere accesso "Controllo completo" o ruolo di
+     "Amministratore" nella nuova esperienza delle Pagine di Facebook.
+
+3. GOOGLE BUSINESS (Maps):
+   - L'account Google deve essere Proprietario o Gestore verificato della sede Google Maps.
+
+4. LINKEDIN:
+   - Per pubblicare su pagine aziendali, l'utente deve essere Amministratore della Pagina LinkedIn.
+
+5. TIKTOK:
+   - L'account TikTok deve essere attivo e in buono stato (non soggetto a limitazioni o shadowban).
+
+
+================================================================================
+6. RISOLUZIONE PROBLEMI, ERRORI FREQUENTI E FAQ
+================================================================================
+
+D: Perché compare l'errore "OAuth non configurato per Meta/Instagram"?
+R: L'Amministratore non ha ancora incollato l'App ID e l'App Secret nel
+   "Pannello Sviluppatore / Master OAuth". Esegui la Fase 2.1 una sola volta.
+
+D: Il popup di autorizzazione si chiude subito o resta bianco?
+R: Verifica che il browser non stia bloccando i popup. Nelle impostazioni del browser,
+   imposta "Consenti sempre popup e reindirizzamenti per questo sito".
+
+D: Il cliente riceve l'errore "Questa app è in modalità di sviluppo e non hai i permessi"?
+R: Significa che la tua app Meta è ancora in Development Mode.
+   Soluzione rapida: vai su developers.facebook.com > la tua app > "Ruoli" > "Tester",
+   aggiungi l'account Facebook del cliente e fagli accettare la richiesta su:
+   https://developers.facebook.com/requests
+
+D: Cosa succede se un cliente cambia la password del suo account social?
+R: La piattaforma social invaliderà il token per sicurezza. Su NonPosto.io la card
+   del canale segnalerà la necessità di aggiornamento: basterà cliccare su "Ricollega"
+   e rieffettuare l'accesso in 5 secondi.
+
+D: I dati e i post dei diversi clienti possono mescolarsi?
+R: Assolutamente NO. Il database SQLite di NonPosto.io isola rigorosamente canali,
+   token, post, media e impostazioni in base al `workspace_id`. Ogni cliente vede
+   unicamente ed esclusivamente i propri contenuti.
+
+================================================================================
+Documento redatto dal team NonPosto.io - Social Media Management Platform
+================================================================================

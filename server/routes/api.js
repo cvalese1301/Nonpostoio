@@ -8,6 +8,7 @@ const authService = require('../services/authService');
 const authMiddleware = require('../middleware/authMiddleware');
 const { MCP_TOOLS, handleMcpToolCall } = require('../mcp/mcpTools');
 const { buildPublishedLinks, generatePlatformPostUrl } = require('../services/postLinksHelper');
+const metaOAuthService = require('../services/metaOAuthService');
 
 // Middleware: require admin role
 function adminOnly(req, res, next) {
@@ -227,6 +228,255 @@ router.get('/oauth/status', authMiddleware, async (req, res) => {
     };
 
     res.json({ platforms });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// LIVE META OAUTH (Facebook Pages, Instagram Business, Threads)
+// -------------------------------------------------------------
+router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
+  try {
+    const { channel_id, platform = 'facebook' } = req.query;
+    if (!channel_id) {
+      return res.status(400).send('Parametro channel_id mancante.');
+    }
+
+    // Verify channel belongs to user's workspace
+    const channel = await get(
+      `SELECT c.*, w.name as workspace_name 
+       FROM channels c 
+       JOIN workspaces w ON c.workspace_id = w.id 
+       WHERE c.id = ? AND w.user_id = ?`,
+      [channel_id, req.user.id]
+    );
+
+    if (!channel) {
+      return res.status(403).send('Canale non autorizzato o inesistente.');
+    }
+
+    const { appId, appSecret, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+    if (!appId || !appSecret) {
+      return res.status(400).send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Credenziali Meta Mancanti</title></head>
+        <body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#0B0F19; color:#F1F5F9; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:20px;">
+          <div style="background:#151D30; border:1px solid #23304E; border-radius:16px; padding:32px; max-width:440px; text-align:center;">
+            <div style="font-size:40px; margin-bottom:12px;">⚠️</div>
+            <h2 style="color:#EF4444; margin-bottom:10px;">Credenziali Meta Mancanti</h2>
+            <p style="color:#94A3B8; font-size:14px; line-height:1.5; margin-bottom:20px;">L'amministratore deve prima configurare l'<strong>ID App</strong> e il <strong>Segreto App</strong> di Meta nelle Impostazioni Master OAuth di NonPosto.io.</p>
+            <button onclick="window.close()" style="background:#3B82F6; color:white; border:none; padding:10px 20px; border-radius:8px; font-weight:600; cursor:pointer;">Chiudi</button>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    const redirectUri = metaOAuthService.resolveRedirectUri(req, customRedirectUri);
+
+    const statePayload = {
+      userId: req.user.id,
+      channelId: channel.id,
+      platform,
+      workspaceId: channel.workspace_id,
+      workspaceName: channel.workspace_name,
+      ts: Date.now()
+    };
+    const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+
+    const authUrl = metaOAuthService.buildMetaAuthorizationUrl({
+      appId,
+      redirectUri,
+      platform,
+      state
+    });
+
+    res.redirect(authUrl);
+  } catch (err) {
+    res.status(500).send(`Errore inizializzazione OAuth Meta: ${err.message}`);
+  }
+});
+
+router.get('/oauth/meta/callback', async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error || !code) {
+    const errorMsg = error_description || error || 'Autorizzazione annullata dall\'utente.';
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Autorizzazione Annullata</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0B0F19; color: #F1F5F9; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+          .card { background: #151D30; border: 1px solid #23304E; border-radius: 16px; padding: 32px; max-width: 440px; text-align: center; }
+          h2 { color: #EF4444; margin-bottom: 10px; }
+          p { color: #94A3B8; font-size: 14px; line-height: 1.5; margin-bottom: 20px; }
+          button { background: #334155; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div style="font-size: 40px; margin-bottom: 12px;">🚫</div>
+          <h2>Connessione Annullata</h2>
+          <p>${metaOAuthService.escapeHtml(errorMsg)}</p>
+          <button onclick="window.close()">Chiudi Finestra</button>
+        </div>
+        <script>
+          if (window.opener) {
+            window.opener.postMessage({ type: 'oauth_error', error: ${JSON.stringify(errorMsg)} }, '*');
+          }
+        </script>
+      </body>
+      </html>
+    `);
+  }
+
+  try {
+    let statePayload;
+    try {
+      statePayload = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+    } catch (e) {
+      return res.status(400).send('Stato di sicurezza non valido o corrotto.');
+    }
+
+    const { userId, channelId, platform, workspaceId, workspaceName } = statePayload;
+
+    const { appId, appSecret, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+    const redirectUri = metaOAuthService.resolveRedirectUri(req, customRedirectUri);
+
+    // Step 1: Exchange code for long-lived user token
+    const userToken = await metaOAuthService.exchangeCodeForTokens({
+      code,
+      appId,
+      appSecret,
+      redirectUri
+    });
+
+    // Step 2: Fetch Pages and Instagram Business accounts
+    const { rawPagesCount, accounts } = await metaOAuthService.fetchMetaAccounts({
+      userToken,
+      platform
+    });
+
+    const stateToken = Buffer.from(JSON.stringify({
+      userId,
+      channelId,
+      platform,
+      workspaceId,
+      userToken
+    })).toString('base64url');
+
+    // Step 3: Render interactive selection UI
+    const html = metaOAuthService.renderAccountSelectionHtml({
+      platform,
+      accounts,
+      stateToken,
+      rawPagesCount,
+      workspaceName
+    });
+
+    res.send(html);
+  } catch (err) {
+    console.error('[Meta OAuth] Errore nel callback:', err.response?.data || err.message);
+    const errDetails = err.response?.data?.error?.message || err.message;
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Errore Meta OAuth</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0B0F19; color: #F1F5F9; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+          .card { background: #151D30; border: 1px solid #23304E; border-radius: 16px; padding: 32px; max-width: 480px; text-align: center; }
+          h2 { color: #EF4444; margin-bottom: 10px; }
+          p { color: #94A3B8; font-size: 14px; line-height: 1.5; margin-bottom: 20px; word-break: break-word; }
+          button { background: #3B82F6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
+          <h2>Errore durante il collegamento</h2>
+          <p>${metaOAuthService.escapeHtml(errDetails)}</p>
+          <button onclick="window.close()">Chiudi Finestra</button>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+});
+
+router.post('/oauth/meta/finalize', async (req, res) => {
+  try {
+    const { stateToken, account } = req.body;
+    if (!stateToken || !account) {
+      return res.status(400).json({ error: 'Dati mancanti per il salvataggio dell\'account' });
+    }
+
+    let statePayload;
+    try {
+      statePayload = JSON.parse(Buffer.from(stateToken, 'base64url').toString('utf8'));
+    } catch (e) {
+      return res.status(400).json({ error: 'Token di stato non valido' });
+    }
+
+    const { userId, channelId, platform, workspaceId, userToken } = statePayload;
+
+    // Verify channel belongs to user's workspace
+    const channel = await get(
+      `SELECT c.* FROM channels c 
+       JOIN workspaces w ON c.workspace_id = w.id 
+       WHERE c.id = ? AND w.user_id = ?`,
+      [channelId, userId]
+    );
+
+    if (!channel) {
+      return res.status(403).json({ error: 'Accesso non autorizzato a questo canale' });
+    }
+
+    const cleanHandle = account.handle?.startsWith('@') ? account.handle : `@${account.handle || account.name}`;
+
+    const config = {
+      connected_via: 'meta_oauth_live',
+      connected_at: new Date().toISOString(),
+      platform,
+      account_id: account.id,
+      access_token: account.access_token || userToken,
+      category: account.category || '',
+      scopes: [
+        'pages_show_list',
+        'pages_read_engagement',
+        'pages_manage_posts',
+        platform === 'instagram' ? 'instagram_content_publish' : ''
+      ].filter(Boolean)
+    };
+
+    await run(
+      `UPDATE channels 
+       SET account_name = ?,
+           handle = ?,
+           avatar_url = ?,
+           active = 1,
+           config_json = ?
+       WHERE id = ?`,
+      [
+        account.name.trim(),
+        cleanHandle.trim(),
+        account.avatar_url || '',
+        JSON.stringify(config),
+        channelId
+      ]
+    );
+
+    const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+
+    res.json({
+      success: true,
+      message: `Account ${updated.platform} collegato con successo!`,
+      channel: updated
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
