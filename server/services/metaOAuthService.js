@@ -106,14 +106,31 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri }) {
  * Fetch Pages and associated Instagram Business Accounts from Graph API
  */
 async function fetchMetaAccounts({ userToken, platform }) {
-  const accountsRes = await axios.get('https://graph.facebook.com/v20.0/me/accounts', {
-    params: {
-      fields: 'id,name,access_token,category,picture{url},instagram_business_account{id,username,name,profile_picture_url}',
-      access_token: userToken
-    }
-  });
+  let pages = [];
+  let nextUrl = 'https://graph.facebook.com/v20.0/me/accounts';
+  let params = {
+    fields: 'id,name,access_token,category,picture{url},instagram_business_account{id,username,name,profile_picture_url}',
+    access_token: userToken,
+    limit: 100
+  };
 
-  const pages = accountsRes.data.data || [];
+  try {
+    while (nextUrl) {
+      const accountsRes = await axios.get(nextUrl, { params });
+      const batch = accountsRes.data.data || [];
+      pages = pages.concat(batch);
+
+      // Check for next page
+      if (accountsRes.data.paging && accountsRes.data.paging.next) {
+        nextUrl = accountsRes.data.paging.next;
+        params = {}; // nextUrl already contains necessary query params
+      } else {
+        nextUrl = null;
+      }
+    }
+  } catch (err) {
+    console.error('[Meta OAuth] Errore durante il recupero delle pagine:', err.response?.data || err.message);
+  }
   const selectableAccounts = [];
 
   if (platform === 'facebook') {
