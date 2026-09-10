@@ -1,6 +1,39 @@
 const axios = require('axios');
 const { get, all, run } = require('../db/database');
 
+const crypto = require('crypto');
+const JWT_SECRET = process.env.JWT_SECRET || 'nonposto-saas-secret-key-2026-secure-auth';
+
+function encryptSecret(text) {
+  if (!text) return '';
+  try {
+    const iv = crypto.randomBytes(16);
+    const key = crypto.createHash('sha256').update(JWT_SECRET).digest();
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  } catch (e) {
+    return '';
+  }
+}
+
+function decryptSecret(enc) {
+  if (!enc) return '';
+  try {
+    const [ivHex, authTagHex, encrypted] = enc.split(':');
+    const key = crypto.createHash('sha256').update(JWT_SECRET).digest();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (e) {
+    return '';
+  }
+}
+
 /**
  * Helper to escape HTML characters
  */
@@ -88,6 +121,10 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, config
  * Exchange authorization code for user access token and extend to 60 days
  */
 async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri }) {
+  if (!appId || !appSecret) {
+    throw new Error('Credenziali Meta mancanti: App ID o App Secret non configurati. Verifica le impostazioni Master OAuth o aggiungi OAUTH_META_APP_ID e OAUTH_META_APP_SECRET nelle variabili d\'ambiente di Render.');
+  }
+
   // Step 1: Exchange code for short-lived token
   const tokenRes = await axios.get('https://graph.facebook.com/v20.0/oauth/access_token', {
     params: {
@@ -765,5 +802,7 @@ module.exports = {
   buildMetaAuthorizationUrl,
   exchangeCodeForTokens,
   fetchMetaAccounts,
-  renderAccountSelectionHtml
+  renderAccountSelectionHtml,
+  encryptSecret,
+  decryptSecret
 };

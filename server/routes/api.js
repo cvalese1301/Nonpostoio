@@ -314,6 +314,9 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       platform,
       workspaceId: channel.workspace_id,
       workspaceName: channel.workspace_name,
+      appId,
+      encSecret: metaOAuthService.encryptSecret(appSecret),
+      configId: configId || '',
       ts: Date.now()
     };
     const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
@@ -377,7 +380,32 @@ router.get('/oauth/meta/callback', async (req, res) => {
 
     const { userId, channelId, platform, workspaceId, workspaceName } = statePayload;
 
-    const { appId, appSecret, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+    let { appId, appSecret, configId, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+
+    // Self-healing auto-recovery: if SQLite was reset or creds are missing, restore from encrypted OAuth state
+    if (!appId && statePayload.appId) {
+      appId = statePayload.appId;
+    }
+    if (!appSecret && statePayload.encSecret) {
+      appSecret = metaOAuthService.decryptSecret(statePayload.encSecret);
+    }
+    if (!configId && statePayload.configId) {
+      configId = statePayload.configId;
+    }
+
+    // Persist restored credentials back into database settings so subsequent operations have them
+    if (appId && appSecret) {
+      try {
+        await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_id', ?)", [appId]);
+        await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [appSecret]);
+        if (configId) {
+          await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_config_id', ?)", [configId]);
+        }
+      } catch (dbErr) {
+        console.warn('[Meta OAuth] Impossibile persistere credenziali ripristinate:', dbErr.message);
+      }
+    }
+
     const redirectUri = metaOAuthService.resolveRedirectUri(req, customRedirectUri);
 
     // Step 1: Exchange code for long-lived user token
@@ -479,8 +507,7 @@ router.post('/oauth/meta/finalize', async (req, res) => {
 
     const { userId, channelId, platform, workspaceId, userToken } = statePayload;
 
-    // Verify channel belongs to user's workspace
-    const channel = await get(
+    let channel = await get(
       `SELECT c.* FROM channels c 
        JOIN workspaces w ON c.workspace_id = w.id 
        WHERE c.id = ? AND w.user_id = ?`,
@@ -488,9 +515,21 @@ router.post('/oauth/meta/finalize', async (req, res) => {
     );
 
     if (!channel) {
+      // Fallback: match channel by platform for this user/workspace
+      channel = await get(
+        `SELECT c.* FROM channels c 
+         JOIN workspaces w ON c.workspace_id = w.id 
+         WHERE w.user_id = ? AND c.platform = ? 
+         ORDER BY c.id ASC LIMIT 1`,
+        [userId, platform]
+      );
+    }
+
+    if (!channel) {
       return res.status(403).json({ error: 'Accesso non autorizzato a questo canale' });
     }
 
+    const targetChannelId = channel.id;
     const cleanHandle = account.handle?.startsWith('@') ? account.handle : `@${account.handle || account.name}`;
 
     const config = {
@@ -521,11 +560,11 @@ router.post('/oauth/meta/finalize', async (req, res) => {
         cleanHandle.trim(),
         account.avatar_url || '',
         JSON.stringify(config),
-        channelId
+        targetChannelId
       ]
     );
 
-    const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+    const updated = await get('SELECT * FROM channels WHERE id = ?', [targetChannelId]);
 
     res.json({
       success: true,
@@ -1147,7 +1186,7 @@ router.post('/settings', authMiddleware, async (req, res) => {
       if (val !== undefined && val !== null) {
         const cleanVal = typeof val === 'object' ? JSON.stringify(val) : String(val).trim();
         await run(
-          "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+          "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
           [key, cleanVal]
         );
       }
