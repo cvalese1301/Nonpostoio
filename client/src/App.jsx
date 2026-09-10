@@ -9,6 +9,7 @@ import McpModal from './components/McpModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import NewClientModal from './components/NewClientModal.jsx';
 import AuthModal from './components/AuthModal.jsx';
+import PublishedLinksModal from './components/PublishedLinksModal.jsx';
 import { getCurrentUser, logout as authLogout } from './services/auth.js';
 
 export default function App() {
@@ -37,6 +38,11 @@ export default function App() {
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newClientOpen, setNewClientOpen] = useState(false);
+
+  // Published Links Summary Modal
+  const [publishedLinksModalOpen, setPublishedLinksModalOpen] = useState(false);
+  const [selectedPostForLinks, setSelectedPostForLinks] = useState(null);
+  const [isNewlyPublished, setIsNewlyPublished] = useState(false);
 
   // 1. Initial Auth Check on App Load
   useEffect(() => {
@@ -199,28 +205,60 @@ export default function App() {
     }
   };
 
+  // Bulk Delete Posts (Drafts & Scheduled only)
+  const handleBulkDeletePosts = async (postIds) => {
+    if (!postIds || postIds.length === 0) return;
+    try {
+      const res = await fetch('/api/posts/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: postIds })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPosts(prev => prev.filter(p => !postIds.includes(p.id)));
+        if (activeWorkspace) fetchPosts(activeWorkspace.id);
+      } else {
+        alert(data.error || 'Errore durante l\'eliminazione multipla.');
+      }
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+      alert('Errore di connessione durante l\'eliminazione.');
+    }
+  };
+
   // Save or Update Post from Composer
   const handleSavePost = async (postPayload) => {
     try {
+      let res;
       if (postPayload.id) {
         // Update
-        await fetch(`/api/posts/${postPayload.id}`, {
+        res = await fetch(`/api/posts/${postPayload.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(postPayload)
         });
       } else {
         // Create
-        await fetch('/api/posts', {
+        res = await fetch('/api/posts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(postPayload)
         });
       }
+      const savedPost = await res.json();
       fetchPosts(activeWorkspace.id);
+      return savedPost;
     } catch (err) {
       console.error('Save post error:', err);
+      return null;
     }
+  };
+
+  const handleOpenPostLinks = (post, newlyPublished = false) => {
+    setSelectedPostForLinks(post);
+    setIsNewlyPublished(newlyPublished);
+    setPublishedLinksModalOpen(true);
   };
 
   // Create New Client / Workspace
@@ -354,6 +392,8 @@ export default function App() {
             onDuplicatePost={handleDuplicatePost}
             onEditPost={openComposerForEdit}
             onOpenComposerForDate={openComposerForDate}
+            onViewPostLinks={handleOpenPostLinks}
+            onBulkDeletePosts={handleBulkDeletePosts}
             viewMode={viewMode}
           />
         ) : (
@@ -381,6 +421,15 @@ export default function App() {
         editingPost={editingPost}
         initialDate={composerInitialDate}
         onSavePost={handleSavePost}
+        onViewPostLinks={handleOpenPostLinks}
+      />
+
+      {/* Published Links Summary Modal */}
+      <PublishedLinksModal
+        isOpen={publishedLinksModalOpen}
+        onClose={() => setPublishedLinksModalOpen(false)}
+        post={selectedPostForLinks}
+        isNewlyPublished={isNewlyPublished}
       />
 
       {/* Media & pCloud Library Modal */}

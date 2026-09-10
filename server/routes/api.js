@@ -7,6 +7,7 @@ const scheduler = require('../services/scheduler');
 const authService = require('../services/authService');
 const authMiddleware = require('../middleware/authMiddleware');
 const { MCP_TOOLS, handleMcpToolCall } = require('../mcp/mcpTools');
+const { buildPublishedLinks, generatePlatformPostUrl } = require('../services/postLinksHelper');
 
 // Middleware: require admin role
 function adminOnly(req, res, next) {
@@ -386,6 +387,9 @@ router.get('/posts', authMiddleware, async (req, res) => {
     query += ` ORDER BY scheduled_at ASC, created_at DESC`;
     const posts = await all(query, params);
 
+    // Fetch workspace channels once for linking
+    const channels = await all('SELECT * FROM channels WHERE workspace_id = ?', [workspace_id]);
+
     // Fetch customizations for all posts
     for (const post of posts) {
       const customizations = await all('SELECT * FROM post_customizations WHERE post_id = ?', [post.id]);
@@ -395,6 +399,15 @@ router.get('/posts', authMiddleware, async (req, res) => {
         extra_options: JSON.parse(c.extra_options_json || '{}')
       }));
       post.platforms = post.customizations.map(c => c.platform);
+
+      if (post.status === 'published') {
+        const { links, summaryText } = buildPublishedLinks(post.customizations, channels, post.id);
+        post.published_links = links;
+        post.summary_text = summaryText;
+      } else {
+        post.published_links = [];
+        post.summary_text = '';
+      }
     }
 
     // Optional filter by platform
@@ -429,20 +442,33 @@ router.post('/posts', authMiddleware, async (req, res) => {
     const ws = await get('SELECT id FROM workspaces WHERE id = ? AND user_id = ?', [workspace_id, req.user.id]);
     if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
 
+    const isPublished = status === 'published';
+    const publishedAtVal = isPublished ? new Date().toISOString() : null;
+
     const postResult = await run(
-      `INSERT INTO posts (workspace_id, title, base_content, status, scheduled_at, recycle_interval_days)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [workspace_id, title, base_content, status, scheduled_at, recycle_interval_days]
+      `INSERT INTO posts (workspace_id, title, base_content, status, scheduled_at, published_at, recycle_interval_days)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [workspace_id, title, base_content, status, scheduled_at, publishedAtVal, recycle_interval_days]
     );
 
     const postId = postResult.id;
 
+    // Fetch workspace channels to get handles for URLs
+    const channels = await all('SELECT * FROM channels WHERE workspace_id = ?', [workspace_id]);
+    const channelMap = {};
+    channels.forEach(ch => { channelMap[ch.platform] = ch; });
+
     // Save channel customizations
     for (const [plat, data] of Object.entries(customizations)) {
       if (!data) continue;
+      const ch = channelMap[plat];
+      const publishedUrl = isPublished
+        ? (data.published_url || generatePlatformPostUrl(plat, ch?.handle || ch?.account_name || '', postId))
+        : null;
+
       await run(
-        `INSERT INTO post_customizations (post_id, platform, custom_content, hashtags, first_comment, media_urls_json, extra_options_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO post_customizations (post_id, platform, custom_content, hashtags, first_comment, media_urls_json, extra_options_json, published_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           postId,
           plat,
@@ -450,14 +476,29 @@ router.post('/posts', authMiddleware, async (req, res) => {
           data.hashtags || '',
           data.first_comment || '',
           JSON.stringify(data.media_urls || []),
-          JSON.stringify(data.extra_options || {})
+          JSON.stringify(data.extra_options || {}),
+          publishedUrl
         ]
       );
     }
 
     const createdPost = await get('SELECT * FROM posts WHERE id = ?', [postId]);
     const cust = await all('SELECT * FROM post_customizations WHERE post_id = ?', [postId]);
-    createdPost.customizations = cust;
+    createdPost.customizations = cust.map(c => ({
+      ...c,
+      media_urls: JSON.parse(c.media_urls_json || '[]'),
+      extra_options: JSON.parse(c.extra_options_json || '{}')
+    }));
+    createdPost.platforms = createdPost.customizations.map(c => c.platform);
+
+    if (isPublished) {
+      const { links, summaryText } = buildPublishedLinks(createdPost.customizations, channels, postId);
+      createdPost.published_links = links;
+      createdPost.summary_text = summaryText;
+    } else {
+      createdPost.published_links = [];
+      createdPost.summary_text = '';
+    }
 
     res.json(createdPost);
   } catch (err) {
@@ -477,25 +518,44 @@ router.put('/posts/:id', authMiddleware, async (req, res) => {
       customizations = {}
     } = req.body;
 
+    const currentPost = await get('SELECT * FROM posts WHERE id = ?', [postId]);
+    if (!currentPost) return res.status(404).json({ error: 'Post non trovato' });
+
+    const isPublishing = status === 'published';
+    const nowIso = new Date().toISOString();
+    const newPublishedAt = isPublishing 
+      ? (currentPost.published_at || nowIso)
+      : (status ? null : currentPost.published_at);
+
     await run(
       `UPDATE posts 
        SET title = COALESCE(?, title),
            base_content = COALESCE(?, base_content),
            status = COALESCE(?, status),
            scheduled_at = COALESCE(?, scheduled_at),
+           published_at = ?,
            recycle_interval_days = COALESCE(?, recycle_interval_days)
        WHERE id = ?`,
-      [title, base_content, status, scheduled_at, recycle_interval_days, postId]
+      [title, base_content, status, scheduled_at, newPublishedAt, recycle_interval_days, postId]
     );
+
+    const channels = await all('SELECT * FROM channels WHERE workspace_id = ?', [currentPost.workspace_id]);
+    const channelMap = {};
+    channels.forEach(ch => { channelMap[ch.platform] = ch; });
 
     // Update customizations if provided
     if (customizations && Object.keys(customizations).length > 0) {
       await run('DELETE FROM post_customizations WHERE post_id = ?', [postId]);
       for (const [plat, data] of Object.entries(customizations)) {
         if (!data) continue;
+        const ch = channelMap[plat];
+        const publishedUrl = isPublishing
+          ? (data.published_url || generatePlatformPostUrl(plat, ch?.handle || ch?.account_name || '', postId))
+          : null;
+
         await run(
-          `INSERT INTO post_customizations (post_id, platform, custom_content, hashtags, first_comment, media_urls_json, extra_options_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO post_customizations (post_id, platform, custom_content, hashtags, first_comment, media_urls_json, extra_options_json, published_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             postId,
             plat,
@@ -503,13 +563,41 @@ router.put('/posts/:id', authMiddleware, async (req, res) => {
             data.hashtags || '',
             data.first_comment || '',
             JSON.stringify(data.media_urls || []),
-            JSON.stringify(data.extra_options || {})
+            JSON.stringify(data.extra_options || {}),
+            publishedUrl
           ]
         );
+      }
+    } else if (isPublishing) {
+      // If status changed to published but customizations payload wasn't sent, update existing customizations with URLs
+      const existingCust = await all('SELECT * FROM post_customizations WHERE post_id = ?', [postId]);
+      for (const c of existingCust) {
+        if (!c.published_url) {
+          const ch = channelMap[c.platform];
+          const url = generatePlatformPostUrl(c.platform, ch?.handle || ch?.account_name || '', postId);
+          await run('UPDATE post_customizations SET published_url = ? WHERE id = ?', [url, c.id]);
+        }
       }
     }
 
     const updated = await get('SELECT * FROM posts WHERE id = ?', [postId]);
+    const cust = await all('SELECT * FROM post_customizations WHERE post_id = ?', [postId]);
+    updated.customizations = cust.map(c => ({
+      ...c,
+      media_urls: JSON.parse(c.media_urls_json || '[]'),
+      extra_options: JSON.parse(c.extra_options_json || '{}')
+    }));
+    updated.platforms = updated.customizations.map(c => c.platform);
+
+    if (updated.status === 'published') {
+      const { links, summaryText } = buildPublishedLinks(updated.customizations, channels, postId);
+      updated.published_links = links;
+      updated.summary_text = summaryText;
+    } else {
+      updated.published_links = [];
+      updated.summary_text = '';
+    }
+
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -571,6 +659,47 @@ router.delete('/posts/:id', authMiddleware, async (req, res) => {
     await run('DELETE FROM post_customizations WHERE post_id = ?', [postId]);
     await run('DELETE FROM posts WHERE id = ?', [postId]);
     res.json({ success: true, message: 'Post eliminato con successo' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk delete posts (Drafts & Scheduled only)
+router.post('/posts/bulk-delete', authMiddleware, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Nessun post selezionato per l\'eliminazione' });
+    }
+
+    // Verify posts belong to workspaces owned by req.user and status is draft or scheduled
+    const placeholders = ids.map(() => '?').join(',');
+    const allowedPosts = await all(
+      `SELECT p.id, p.status, p.title 
+       FROM posts p 
+       JOIN workspaces w ON p.workspace_id = w.id 
+       WHERE p.id IN (${placeholders}) AND w.user_id = ? AND p.status IN ('draft', 'scheduled')`,
+      [...ids, req.user.id]
+    );
+
+    if (allowedPosts.length === 0) {
+      return res.status(400).json({ 
+        error: 'Nessun post in bozza o programmato trovato per l\'eliminazione. I post già pubblicati non possono essere eliminati in blocco.' 
+      });
+    }
+
+    const allowedIds = allowedPosts.map(p => p.id);
+    const delPlaceholders = allowedIds.map(() => '?').join(',');
+
+    await run(`DELETE FROM post_customizations WHERE post_id IN (${delPlaceholders})`, allowedIds);
+    await run(`DELETE FROM posts WHERE id IN (${delPlaceholders})`, allowedIds);
+
+    res.json({ 
+      success: true, 
+      message: `${allowedIds.length} post eliminati con successo`, 
+      deletedCount: allowedIds.length, 
+      deletedIds: allowedIds 
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

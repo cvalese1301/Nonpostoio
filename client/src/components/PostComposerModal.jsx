@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Sparkles, Image as ImageIcon, Calendar, Clock, Repeat, 
-  Send, Save, AlertCircle, Check, HelpCircle, UploadCloud
+  Send, Save, AlertCircle, Check, HelpCircle, UploadCloud, ExternalLink
 } from 'lucide-react';
 import SocialMockupPreview from './SocialMockupPreview.jsx';
 
@@ -23,7 +23,8 @@ export default function PostComposerModal({
   channels = [], 
   editingPost = null, 
   initialDate = null,
-  onSavePost 
+  onSavePost,
+  onViewPostLinks 
 }) {
   if (!isOpen) return null;
 
@@ -194,7 +195,7 @@ export default function PostComposerModal({
   };
 
   // Submit Post
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!baseContent.trim()) {
       alert('Inserisci il testo base del post.');
@@ -224,8 +225,12 @@ export default function PostComposerModal({
       id: editingPost?.id
     };
 
-    onSavePost(payload);
+    const saved = await onSavePost(payload);
     onClose();
+
+    if (status === 'published' && saved && onViewPostLinks) {
+      onViewPostLinks(saved, true);
+    }
   };
 
   // Current preview values
@@ -253,6 +258,35 @@ export default function PostComposerModal({
             <X size={20} />
           </button>
         </div>
+
+        {/* Banner if post is already published */}
+        {editingPost?.status === 'published' && (
+          <div style={{
+            margin: '10px 24px 0',
+            padding: '10px 16px',
+            background: 'rgba(16, 185, 129, 0.1)',
+            border: '1px solid rgba(16, 185, 129, 0.25)',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#10B981' }}>
+              <Check size={16} />
+              <span>Questo post è stato pubblicato sui tuoi canali social.</span>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => onViewPostLinks && onViewPostLinks(editingPost)}
+              style={{ padding: '5px 12px', fontSize: '0.78rem', color: '#10B981', borderColor: 'rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <ExternalLink size={13} />
+              Vedi Link Creati ({editingPost.published_links?.length || editingPost.customizations?.length || selectedPlatforms.length})
+            </button>
+          </div>
+        )}
 
         {/* Body */}
         <div className="composer-body">

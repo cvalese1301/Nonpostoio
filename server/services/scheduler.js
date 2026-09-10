@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const { all, run, get } = require('../db/database');
+const { generatePlatformPostUrl } = require('./postLinksHelper');
 
 class SchedulerService {
   constructor() {
@@ -50,6 +51,23 @@ class SchedulerService {
       `SELECT * FROM post_customizations WHERE post_id = ?`,
       [post.id]
     );
+
+    // Fetch channels for workspace to get handles
+    const channels = await all(
+      `SELECT platform, handle, account_name FROM channels WHERE workspace_id = ?`,
+      [post.workspace_id]
+    );
+    const channelMap = {};
+    channels.forEach(ch => { channelMap[ch.platform] = ch; });
+
+    // Ensure published_url is saved for each channel
+    for (const c of customizations) {
+      if (!c.published_url) {
+        const handle = channelMap[c.platform]?.handle || channelMap[c.platform]?.account_name || '';
+        const url = generatePlatformPostUrl(c.platform, handle, post.id);
+        await run(`UPDATE post_customizations SET published_url = ? WHERE id = ?`, [url, c.id]);
+      }
+    }
 
     const platforms = customizations.map(c => c.platform);
     const logEntry = {

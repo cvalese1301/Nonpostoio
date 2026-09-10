@@ -128,9 +128,17 @@ async function initDb() {
       first_comment TEXT,
       media_urls_json TEXT DEFAULT '[]',
       extra_options_json TEXT DEFAULT '{}',
+      published_url TEXT,
       FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
     )
   `);
+
+  // Migrate published_url column if table already exists
+  try {
+    await run(`ALTER TABLE post_customizations ADD COLUMN published_url TEXT`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS media_assets (
