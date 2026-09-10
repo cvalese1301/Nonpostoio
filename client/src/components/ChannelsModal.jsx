@@ -96,6 +96,8 @@ export default function ChannelsModal({
     oauth_meta_app_id: '',
     oauth_meta_app_secret: '',
     oauth_meta_config_id: '',
+    oauth_threads_app_id: '',
+    oauth_threads_app_secret: '',
     oauth_google_client_id: '',
     oauth_google_client_secret: '',
     oauth_linkedin_client_id: '',
@@ -146,6 +148,8 @@ export default function ChannelsModal({
           oauth_meta_app_id: data.oauth_meta_app_id || '',
           oauth_meta_app_secret: data.oauth_meta_app_secret || '',
           oauth_meta_config_id: data.oauth_meta_config_id || '',
+          oauth_threads_app_id: data.oauth_threads_app_id || '',
+          oauth_threads_app_secret: data.oauth_threads_app_secret || '',
           oauth_google_client_id: data.oauth_google_client_id || '',
           oauth_google_client_secret: data.oauth_google_client_secret || '',
           oauth_linkedin_client_id: data.oauth_linkedin_client_id || '',
@@ -457,10 +461,15 @@ export default function ChannelsModal({
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {/* Meta */}
-        {renderOAuthGroup('Meta (Facebook, Instagram, Threads)', '#1877F2', [
+        {renderOAuthGroup('Meta (Facebook e Instagram)', '#1877F2', [
           { key: 'oauth_meta_app_id', label: 'App ID' },
           { key: 'oauth_meta_app_secret', label: 'App Secret', secret: true },
           { key: 'oauth_meta_config_id', label: 'ID Configurazione (Facebook Login for Business)' }
+        ])}
+        {/* Threads */}
+        {renderOAuthGroup('Threads (Threads API)', '#000000', [
+          { key: 'oauth_threads_app_id', label: 'App ID (lascia vuoto per usare Meta)' },
+          { key: 'oauth_threads_app_secret', label: 'App Secret (lascia vuoto per usare Meta)', secret: true }
         ])}
         {/* Google */}
         {renderOAuthGroup('Google (YouTube, Business)', '#4285F4', [

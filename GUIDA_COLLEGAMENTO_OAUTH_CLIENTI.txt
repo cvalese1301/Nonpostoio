@@ -106,43 +106,56 @@ CASO D'USO B: "INSTAGRAM GRAPH API" (Coinvolgi il pubblico su Instagram)
   * pages_show_list             -> fondamentale: Instagram si collega tramite la Pagina Facebook associata
 
 CASO D'USO C: "THREADS API" (Threads Content Publishing)
-- Titolo esatto in Meta: "Threads" (caso d'uso dedicato introdotto da Meta per la nuova piattaforma)
+- Titolo esatto in Meta: "Threads" oppure caso d'uso "Accedi all'API Threads"
 - Scopo: Permette la creazione di thread testuali, immagini e link sul profilo Threads.
 - Permessi (Scopes) obbligatori da aggiungere:
-  * threads_basic               -> legge informazioni base dell'account Threads
-  * threads_content_publish     -> pubblica post e thread sull'account
+  * threads_basic               -> legge informazioni base e profilo Threads
+  * threads_content_publish     -> pubblica post e immagini sull'account
+
+NOTA SU THREADS:
+Meta gestisce Threads tramite un'infrastruttura dedicata (threads.net).
+Puoi gestirlo in 2 modi:
+MODALITÀ A (Consigliata se disponibile): Aggiungi il caso d'uso "Threads" alla stessa App Meta di Facebook.
+MODALITÀ B (Se Meta richiede un'app dedicata): Clicca su "Crea app", tipo "Business", e seleziona "Accedi all'API Threads".
+In entrambi i casi, NonPosto.io supporta sia le stesse credenziali Meta sia credenziali dedicate per Threads.
 
 
-2.1.2 COME AGGIUNGERE PIÙ CASI D'USO ALLA STESSA APP
-Se durante la creazione iniziale Meta ti ha permesso di selezionare solo un caso d'uso:
-1. Completa la creazione con il primo (es. Facebook Login for Business).
-2. Entra nella dashboard della tua app su Meta.
-3. Nel menu laterale sinistro, clicca sulla voce "Casi d'uso" (Use Cases).
-4. Clicca sul pulsante in alto a destra "Aggiungi caso d'uso" (Add use case).
-5. Seleziona "Instagram" e configura i permessi.
-6. Ripeti cliccando su "Aggiungi caso d'uso", seleziona "Threads" e configura i permessi.
+2.1.2 COME AGGIUNGERE I CASI D'USO
+1. Se sei nella stessa app: nel menu laterale clicca su "Casi d'uso" > "Aggiungi caso d'uso" e seleziona "Instagram" e "Threads".
+2. Se Meta ti chiede di creare un'app separata per Threads: creala e copia il suo App ID e Secret dedicato.
 
 
 2.1.3 CONFIGURAZIONE DEGLI URL DI REINDIRIZZAMENTO (OAUTH REDIRECT URI)
-1. Nel menu a sinistra, sotto il caso d'uso "Facebook Login for Business", clicca su "Impostazioni".
-2. Trova il campo "URI di reindirizzamento OAuth validi" (Valid OAuth Redirect URIs).
-3. Inserisci:
-   - Per produzione: https://tuo-dominio.com/api/channels/oauth-callback
-   - Per test locale: http://localhost:3000/api/channels/oauth-callback
-4. Scorri in basso e clicca su "Salva modifiche".
+1. Per Facebook Login for Business:
+   - Nel menu a sinistra, sotto "Facebook Login for Business", clicca su "Impostazioni".
+   - Nel campo "URI di reindirizzamento OAuth validi" inserisci:
+     * Produzione: https://nonpostoio.onrender.com/api/oauth/meta/callback
+     * Locale: http://localhost:3000/api/oauth/meta/callback
+   - Clicca su "Salva modifiche".
+
+2. Per Threads API:
+   - Nel menu a sinistra, sotto il prodotto "Threads" o "Threads API", clicca su "Impostazioni".
+   - Nel campo "Redirect URI" inserisci esattamente lo stesso URL:
+     * https://nonpostoio.onrender.com/api/oauth/meta/callback
+   - Clicca su "Salva modifiche".
 
 
-2.1.4 RECUPERO DI ID APP E CHIAVE SEGRETA
-1. Nel menu a sinistra, clicca su "Impostazioni dell'app" > "Di base" (App Settings > Basic).
-2. Qui troverai:
-   - "ID app" (App ID): una stringa numerica di 15-16 cifre.
-   - "Chiave segreta dell'app" (App Secret): clicca su "Mostra" e inserisci la password di Facebook per visualizzarla.
-3. Copia entrambi i valori.
-4. Apri NonPosto.io > Accedi come Admin > vai in "Impostazioni & Cloud" oppure apri "Canali Social" > "Pannello Sviluppatore / Master OAuth".
-5. Incolla i valori nei campi:
-   - Meta App ID: [il tuo App ID]
-   - Meta App Secret: [il tuo App Secret]
-6. Clicca su "Salva Credenziali Master".
+2.1.4 COME ABILITARE GLI ACCOUNT TESTER PER THREADS
+1. Su Meta Developers, vai su "Ruoli dell'app" > "Ruoli".
+2. Scorri fino alla sezione "Tester di Threads" e clicca su "Aggiungi tester di Threads".
+3. Inserisci il nome utente esatto di Threads (es. @nomeutente).
+4. Accedi su https://www.threads.net/settings/website_permissions (oppure dalle Impostazioni dell'app Threads su smartphone > Account > Permessi del sito web > Inviti).
+5. Clicca su "Accetta invito". Da questo istante il profilo è autorizzato al 100%!
+
+
+2.1.5 INSERIMENTO CREDENZIALI IN NONPOSTO.IO
+1. Apri NonPosto.io > Canali > Configurazione OAuth (Admin).
+2. Sezione Meta (Facebook & Instagram):
+   - Inserisci App ID, App Secret e ID Configurazione (Login for Business).
+3. Sezione Threads:
+   - Se hai aggiunto Threads alla stessa app Meta: lascia i campi vuoti (NonPosto userà automaticamente le credenziali di Meta).
+   - Se hai creato un'app separata per Threads: inserisci qui l'App ID e App Secret di Threads.
+4. Clicca su "Salva Configurazione".
 
 
 2.1.5 MODALITÀ SVILUPPO (DEV MODE) VS LIVE MODE (COME TESTARE SUBITO CON I CLIENTI)

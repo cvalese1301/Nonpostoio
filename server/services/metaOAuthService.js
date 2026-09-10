@@ -48,7 +48,7 @@ function escapeHtml(str) {
 }
 
 /**
- * Retrieve Meta App ID & Secret from settings or environment variables
+ * Retrieve Meta & Threads App ID & Secret from settings or environment variables
  */
 async function getMetaCredentials() {
   const appIdRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_app_id']);
@@ -56,11 +56,17 @@ async function getMetaCredentials() {
   const configIdRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_config_id']);
   const customRedirectRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_redirect_uri']);
 
+  // Dedicated Threads credentials (if user created a dedicated Meta app for Threads)
+  const threadsAppIdRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_threads_app_id']);
+  const threadsAppSecretRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_threads_app_secret']);
+
   return {
     appId: appIdRow?.value?.trim() || process.env.OAUTH_META_APP_ID?.trim() || '',
     appSecret: appSecretRow?.value?.trim() || process.env.OAUTH_META_APP_SECRET?.trim() || '',
     configId: configIdRow?.value?.trim() || process.env.OAUTH_META_CONFIG_ID?.trim() || '',
-    customRedirectUri: customRedirectRow?.value?.trim() || process.env.OAUTH_META_REDIRECT_URI?.trim() || ''
+    customRedirectUri: customRedirectRow?.value?.trim() || process.env.OAUTH_META_REDIRECT_URI?.trim() || '',
+    threadsAppId: threadsAppIdRow?.value?.trim() || process.env.OAUTH_THREADS_APP_ID?.trim() || '',
+    threadsAppSecret: threadsAppSecretRow?.value?.trim() || process.env.OAUTH_THREADS_APP_SECRET?.trim() || ''
   };
 }
 
@@ -80,9 +86,15 @@ function resolveRedirectUri(req, customRedirectUri = '') {
 }
 
 /**
- * Generate Meta OAuth Dialog URL with full Business Integration scopes or Configuration ID
+ * Generate Meta or Threads OAuth Dialog URL
  */
 function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, configId }) {
+  if (platform === 'threads') {
+    // Official Threads OAuth 2.0 Authorization Endpoint (does not use Facebook Login config_id)
+    const scopes = 'threads_basic,threads_content_publish';
+    return `https://threads.net/oauth/authorize?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
+  }
+
   let scopes = [
     'pages_show_list',
     'pages_read_engagement',
@@ -101,8 +113,6 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, config
       'instagram_manage_comments',
       'instagram_manage_insights'
     );
-  } else if (platform === 'threads') {
-    scopes = ['threads_basic', 'threads_content_publish'];
   }
 
   const scopeString = scopes.join(',');
@@ -120,12 +130,47 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, config
 /**
  * Exchange authorization code for user access token and extend to 60 days
  */
-async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri }) {
+async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri, platform = 'facebook' }) {
   if (!appId || !appSecret) {
-    throw new Error('Credenziali Meta mancanti: App ID o App Secret non configurati. Verifica le impostazioni Master OAuth o aggiungi OAUTH_META_APP_ID e OAUTH_META_APP_SECRET nelle variabili d\'ambiente di Render.');
+    throw new Error('Credenziali mancanti: App ID o App Secret non configurati. Verifica le impostazioni Master OAuth o aggiungi le variabili d\'ambiente su Render.');
   }
 
-  // Step 1: Exchange code for short-lived token
+  if (platform === 'threads') {
+    // Threads authorization code exchange on graph.threads.net
+    const params = new URLSearchParams();
+    params.append('client_id', appId);
+    params.append('client_secret', appSecret);
+    params.append('grant_type', 'authorization_code');
+    params.append('redirect_uri', redirectUri);
+    params.append('code', code);
+
+    const tokenRes = await axios.post('https://graph.threads.net/oauth/access_token', params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+
+    const shortLivedToken = tokenRes.data.access_token;
+    let finalToken = shortLivedToken;
+
+    // Exchange for long-lived 60-day token on Threads
+    try {
+      const extendRes = await axios.get('https://graph.threads.net/access_token', {
+        params: {
+          grant_type: 'th_exchange_token',
+          client_secret: appSecret,
+          access_token: shortLivedToken
+        }
+      });
+      if (extendRes.data?.access_token) {
+        finalToken = extendRes.data.access_token;
+      }
+    } catch (err) {
+      console.warn('[Threads OAuth] Impossibile estendere token Threads a 60 giorni, uso token base:', err.message);
+    }
+
+    return finalToken;
+  }
+
+  // Step 1: Exchange code for short-lived token on Facebook Graph API
   const tokenRes = await axios.get('https://graph.facebook.com/v20.0/oauth/access_token', {
     params: {
       client_id: appId,
@@ -159,9 +204,40 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri }) {
 }
 
 /**
- * Fetch Pages and associated Instagram Business Accounts from Graph API (with limit: 100 and pagination)
+ * Fetch Pages and associated Instagram Business Accounts, or Threads Profile
  */
 async function fetchMetaAccounts({ userToken, platform }) {
+  if (platform === 'threads') {
+    // Fetch Threads User Profile from graph.threads.net
+    try {
+      const meRes = await axios.get('https://graph.threads.net/v1.0/me', {
+        params: {
+          fields: 'id,username,name,threads_profile_picture_url',
+          access_token: userToken
+        }
+      });
+      const th = meRes.data;
+      const handleName = th.username || th.name || 'profilo';
+      const selectable = [{
+        id: th.id,
+        name: th.name || th.username || 'Profilo Threads',
+        handle: `@${handleName}`,
+        avatar_url: th.threads_profile_picture_url || '',
+        category: 'Profilo Threads',
+        access_token: userToken,
+        type: 'threads'
+      }];
+
+      return {
+        rawPagesCount: 1,
+        accounts: selectable
+      };
+    } catch (e) {
+      console.error('[Threads] Errore recupero profilo Threads:', e.response?.data || e.message);
+      throw new Error(`Impossibile recuperare il profilo Threads: ${e.response?.data?.error?.message || e.message}`);
+    }
+  }
+
   let pages = [];
   let nextUrl = 'https://graph.facebook.com/v20.0/me/accounts';
   let params = {
@@ -175,17 +251,11 @@ async function fetchMetaAccounts({ userToken, platform }) {
       const accountsRes = await axios.get(nextUrl, { params });
       const batch = accountsRes.data.data || [];
       pages = pages.concat(batch);
-
-      // Follow pagination if user has > 100 pages
-      if (accountsRes.data.paging && accountsRes.data.paging.next) {
-        nextUrl = accountsRes.data.paging.next;
-        params = {};
-      } else {
-        nextUrl = null;
-      }
+      nextUrl = accountsRes.data.paging?.next || null;
+      params = {};
     }
   } catch (err) {
-    console.error('[Meta OAuth] Errore durante il recupero delle pagine:', err.response?.data || err.message);
+    console.warn('[Meta OAuth] Errore durante il recupero pagine Graph API:', err.response?.data || err.message);
   }
 
   const selectableAccounts = [];
@@ -217,26 +287,6 @@ async function fetchMetaAccounts({ userToken, platform }) {
         });
       }
     });
-  } else if (platform === 'threads') {
-    try {
-      const meRes = await axios.get('https://graph.facebook.com/v20.0/me', {
-        params: {
-          fields: 'id,name,picture{url}',
-          access_token: userToken
-        }
-      });
-      selectableAccounts.push({
-        id: meRes.data.id,
-        name: meRes.data.name,
-        handle: `@${meRes.data.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
-        avatar_url: meRes.data.picture?.data?.url || '',
-        category: 'Profilo Threads',
-        access_token: userToken,
-        type: 'threads'
-      });
-    } catch (e) {
-      console.warn('[Threads] Fallback profilo non disponibile');
-    }
   }
 
   return {
@@ -597,32 +647,41 @@ function renderAccountSelectionHtml({ platform, accounts, stateToken, rawPagesCo
     <!-- Platform Title -->
     <h1 class="page-title">${platformTitle}</h1>
 
-    <!-- Publie Notice Card -->
+    <!-- Notice Card -->
     <div class="notice-card">
       <div class="notice-header">
         <span class="notice-icon">ℹ</span>
         <strong>${platformTitle}</strong>
       </div>
       <p class="notice-desc">
-        Se non vedi tutte le tue pagine ${platformTitle} controlla i 
-        <a href="https://www.facebook.com/settings?tab=business_tools" target="_blank">permessi concessi</a> 
-        alla Integrazione Business su Facebook.
+        ${isFb || isIg ? `
+          Se non vedi tutte le tue pagine ${platformTitle} controlla i 
+          <a href="https://www.facebook.com/settings?tab=business_tools" target="_blank">permessi concessi</a> 
+          alla Integrazione Business su Facebook.
+        ` : `
+          Se non visualizzi il tuo profilo o riscontri errori di autorizzazione, assicurati di aver aggiunto il tuo account come <strong>Tester di Threads</strong> nei Ruoli dell'app su Meta e di aver accettato l'invito su <a href="https://www.threads.net/settings/website_permissions" target="_blank">threads.net</a>.
+        `}
       </p>
       <div class="notice-links">
-        <a href="https://www.facebook.com/settings?tab=business_tools" target="_blank">Vai alla sezione integrazioni business su Facebook</a>
-        <a href="https://www.facebook.com/settings?tab=applications" target="_blank">Leggi la guida su come modificare i permessi su Facebook</a>
+        ${isFb || isIg ? `
+          <a href="https://www.facebook.com/settings?tab=business_tools" target="_blank">Vai alla sezione integrazioni business su Facebook</a>
+          <a href="https://www.facebook.com/settings?tab=applications" target="_blank">Leggi la guida su come modificare i permessi su Facebook</a>
+        ` : `
+          <a href="https://www.threads.net/settings/website_permissions" target="_blank">Verifica i permessi e inviti su Threads.net</a>
+          <a href="https://developers.facebook.com/apps" target="_blank">Gestisci i Ruoli tester su Meta for Developers</a>
+        `}
       </div>
     </div>
 
     <!-- Toolbar -->
     <div class="toolbar-row">
-      <div class="pages-counter"><span id="visibleCount">${accounts.length}</span> Pagine</div>
+      <div class="pages-counter"><span id="visibleCount">${accounts.length}</span> ${platform === 'threads' ? 'Profilo' : 'Pagine'}</div>
       <div class="search-wrapper">
         <input 
           type="text" 
           id="searchInput" 
           class="search-input" 
-          placeholder="Cerca Pagine" 
+          placeholder="${platform === 'threads' ? 'Cerca Profilo' : 'Cerca Pagine'}" 
           oninput="filterPages(this.value)" 
         />
         <span class="search-icon">🔍</span>

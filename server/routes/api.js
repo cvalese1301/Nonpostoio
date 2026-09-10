@@ -246,12 +246,14 @@ router.get('/oauth/status', authMiddleware, async (req, res) => {
 
     const metaAppId = oauthSettings.oauth_meta_app_id || process.env.OAUTH_META_APP_ID;
     const metaAppSecret = oauthSettings.oauth_meta_app_secret || process.env.OAUTH_META_APP_SECRET;
+    const threadsAppId = oauthSettings.oauth_threads_app_id || process.env.OAUTH_THREADS_APP_ID || metaAppId;
+    const threadsAppSecret = oauthSettings.oauth_threads_app_secret || process.env.OAUTH_THREADS_APP_SECRET || metaAppSecret;
 
     // Map to platform availability
     const platforms = {
       facebook: !!(metaAppId && metaAppSecret),
       instagram: !!(metaAppId && metaAppSecret),
-      threads: !!(metaAppId && metaAppSecret),
+      threads: !!(threadsAppId && threadsAppSecret),
       tiktok: !!(oauthSettings.oauth_tiktok_client_key && oauthSettings.oauth_tiktok_client_secret),
       youtube: !!(oauthSettings.oauth_google_client_id && oauthSettings.oauth_google_client_secret),
       google_business: !!(oauthSettings.oauth_google_client_id && oauthSettings.oauth_google_client_secret),
@@ -288,17 +290,22 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       return res.status(403).send('Canale non autorizzato o inesistente.');
     }
 
-    const { appId, appSecret, configId, customRedirectUri } = await metaOAuthService.getMetaCredentials();
-    if (!appId || !appSecret) {
+    const creds = await metaOAuthService.getMetaCredentials();
+    const isThreads = platform === 'threads';
+    const effectiveAppId = (isThreads && creds.threadsAppId) ? creds.threadsAppId : creds.appId;
+    const effectiveAppSecret = (isThreads && creds.threadsAppSecret) ? creds.threadsAppSecret : creds.appSecret;
+    const effectiveConfigId = isThreads ? '' : creds.configId;
+
+    if (!effectiveAppId || !effectiveAppSecret) {
       return res.status(400).send(`
         <!DOCTYPE html>
         <html>
-        <head><title>Credenziali Meta Mancanti</title></head>
+        <head><title>Credenziali ${isThreads ? 'Threads' : 'Meta'} Mancanti</title></head>
         <body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#0B0F19; color:#F1F5F9; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:20px;">
           <div style="background:#151D30; border:1px solid #23304E; border-radius:16px; padding:32px; max-width:440px; text-align:center;">
             <div style="font-size:40px; margin-bottom:12px;">⚠️</div>
-            <h2 style="color:#EF4444; margin-bottom:10px;">Credenziali Meta Mancanti</h2>
-            <p style="color:#94A3B8; font-size:14px; line-height:1.5; margin-bottom:20px;">L'amministratore deve prima configurare l'<strong>ID App</strong> e il <strong>Segreto App</strong> di Meta nelle Impostazioni Master OAuth di NonPosto.io.</p>
+            <h2 style="color:#EF4444; margin-bottom:10px;">Credenziali ${isThreads ? 'Threads' : 'Meta'} Mancanti</h2>
+            <p style="color:#94A3B8; font-size:14px; line-height:1.5; margin-bottom:20px;">L'amministratore deve prima configurare l'<strong>App ID</strong> e il <strong>Segreto App</strong> nelle Impostazioni Master OAuth di NonPosto.io oppure nelle variabili d'ambiente di Render.</p>
             <button onclick="window.close()" style="background:#3B82F6; color:white; border:none; padding:10px 20px; border-radius:8px; font-weight:600; cursor:pointer;">Chiudi</button>
           </div>
         </body>
@@ -306,7 +313,7 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       `);
     }
 
-    const redirectUri = metaOAuthService.resolveRedirectUri(req, customRedirectUri);
+    const redirectUri = metaOAuthService.resolveRedirectUri(req, creds.customRedirectUri);
 
     const statePayload = {
       userId: req.user.id,
@@ -314,19 +321,19 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       platform,
       workspaceId: channel.workspace_id,
       workspaceName: channel.workspace_name,
-      appId,
-      encSecret: metaOAuthService.encryptSecret(appSecret),
-      configId: configId || '',
+      appId: effectiveAppId,
+      encSecret: metaOAuthService.encryptSecret(effectiveAppSecret),
+      configId: effectiveConfigId,
       ts: Date.now()
     };
     const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
 
     const authUrl = metaOAuthService.buildMetaAuthorizationUrl({
-      appId,
+      appId: effectiveAppId,
       redirectUri,
       platform,
       state,
-      configId
+      configId: effectiveConfigId
     });
 
     res.redirect(authUrl);
@@ -413,7 +420,8 @@ router.get('/oauth/meta/callback', async (req, res) => {
       code,
       appId,
       appSecret,
-      redirectUri
+      redirectUri,
+      platform
     });
 
     // Step 2: Fetch Pages and Instagram Business accounts
@@ -533,18 +541,20 @@ router.post('/oauth/meta/finalize', async (req, res) => {
     const cleanHandle = account.handle?.startsWith('@') ? account.handle : `@${account.handle || account.name}`;
 
     const config = {
-      connected_via: 'meta_oauth_live',
+      connected_via: platform === 'threads' ? 'threads_oauth_live' : 'meta_oauth_live',
       connected_at: new Date().toISOString(),
       platform,
       account_id: account.id,
       access_token: account.access_token || userToken,
-      category: account.category || '',
-      scopes: [
-        'pages_show_list',
-        'pages_read_engagement',
-        'pages_manage_posts',
-        platform === 'instagram' ? 'instagram_content_publish' : ''
-      ].filter(Boolean)
+      category: account.category || (platform === 'threads' ? 'Profilo Threads' : ''),
+      scopes: platform === 'threads'
+        ? ['threads_basic', 'threads_content_publish']
+        : [
+            'pages_show_list',
+            'pages_read_engagement',
+            'pages_manage_posts',
+            platform === 'instagram' ? 'instagram_content_publish' : ''
+          ].filter(Boolean)
     };
 
     await run(
