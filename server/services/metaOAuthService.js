@@ -62,7 +62,7 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state }) {
   }
 
   const scopeString = scopes.join(',');
-  return `https://www.facebook.com/v20.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopeString)}&state=${encodeURIComponent(state)}&response_type=code`;
+  return `https://www.facebook.com/v20.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopeString)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest`;
 }
 
 /**
