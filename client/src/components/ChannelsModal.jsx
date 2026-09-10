@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, Share2, Check, RefreshCw, Link2, CheckCircle2, LogOut, 
-  Wifi, WifiOff, AlertTriangle, Settings, ShieldCheck, Eye, EyeOff
+  Wifi, WifiOff, AlertTriangle, Settings, ShieldCheck, Eye, EyeOff, Activity
 } from 'lucide-react';
+import LogsModal from './LogsModal';
 
 const CHANNELS = [
   {
@@ -92,6 +93,7 @@ export default function ChannelsModal({
   // Admin panel state (accessible to configure master OAuth credentials)
   const isAdmin = true;
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showLogsModal, setShowLogsModal] = useState(false);
   const [masterSettings, setMasterSettings] = useState({
     oauth_meta_app_id: '',
     oauth_meta_app_secret: '',
@@ -693,6 +695,14 @@ export default function ChannelsModal({
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button 
+              className="btn-secondary" 
+              onClick={() => setShowLogsModal(true)}
+              style={{ fontSize: '0.75rem', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 5, color: '#A78BFA' }}
+              title="Visualizza registro diagnostica e log di sistema"
+            >
+              <Activity size={13} /> Log & Diagnostica
+            </button>
             {isAdmin && !showAdminPanel && (
               <button 
                 className="btn-secondary" 
@@ -728,6 +738,12 @@ export default function ChannelsModal({
           </div>
         )}
       </div>
+
+      {/* System Diagnostics & Logs Modal */}
+      <LogsModal
+        isOpen={showLogsModal}
+        onClose={() => setShowLogsModal(false)}
+      />
     </div>
   );
 }

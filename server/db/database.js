@@ -163,6 +163,23 @@ async function initDb() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS system_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level TEXT NOT NULL,
+      category TEXT NOT NULL,
+      message TEXT NOT NULL,
+      details_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)`);
+  } catch (e) {
+    // Index exists
+  }
+
   await seedInitialData();
 }
 

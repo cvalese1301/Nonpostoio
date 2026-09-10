@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal.jsx';
 import NewClientModal from './components/NewClientModal.jsx';
 import AuthModal from './components/AuthModal.jsx';
 import PublishedLinksModal from './components/PublishedLinksModal.jsx';
+import LogsModal from './components/LogsModal.jsx';
 import { getCurrentUser, logout as authLogout } from './services/auth.js';
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newClientOpen, setNewClientOpen] = useState(false);
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
 
   // Published Links Summary Modal
   const [publishedLinksModalOpen, setPublishedLinksModalOpen] = useState(false);
@@ -361,6 +363,7 @@ export default function App() {
         onOpenChannelsModal={() => setChannelsModalOpen(true)}
         onOpenMcpModal={() => setMcpModalOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenLogs={() => setLogsModalOpen(true)}
         pcloudStatus={pcloudStatus}
         postCount={posts.length}
       />
@@ -478,6 +481,12 @@ export default function App() {
         isOpen={newClientOpen}
         onClose={() => setNewClientOpen(false)}
         onCreateClient={handleCreateClient}
+      />
+
+      {/* System Diagnostics & Logs Modal */}
+      <LogsModal
+        isOpen={logsModalOpen}
+        onClose={() => setLogsModalOpen(false)}
       />
 
       {/* SaaS Authentication Modal */}

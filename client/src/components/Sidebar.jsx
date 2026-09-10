@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Calendar, PlusCircle, Image, Share2, Cpu, 
-  Settings, CheckCircle, HardDrive, RefreshCw, Cloud
+  Settings, CheckCircle, HardDrive, RefreshCw, Cloud, Activity
 } from 'lucide-react';
 
 const PLATFORM_ICONS = {
@@ -24,6 +24,7 @@ export default function Sidebar({
   onOpenChannelsModal,
   onOpenMcpModal,
   onOpenSettings,
+  onOpenLogs,
   pcloudStatus,
   postCount = 0
 }) {
@@ -89,6 +90,14 @@ export default function Sidebar({
         >
           <Settings size={18} />
           <span>Impostazioni & Cloud</span>
+        </button>
+
+        <button 
+          className="nav-item"
+          onClick={onOpenLogs}
+        >
+          <Activity size={18} color="#A78BFA" />
+          <span>Diagnostica & Log</span>
         </button>
 
         {/* Channels Status for Current Client */}

@@ -9,6 +9,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const { MCP_TOOLS, handleMcpToolCall } = require('../mcp/mcpTools');
 const { buildPublishedLinks, generatePlatformPostUrl } = require('../services/postLinksHelper');
 const metaOAuthService = require('../services/metaOAuthService');
+const logger = require('../services/logger');
 
 // Middleware: require admin role
 function adminOnly(req, res, next) {
@@ -315,6 +316,13 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
 
     const redirectUri = metaOAuthService.resolveRedirectUri(req, creds.customRedirectUri);
 
+    await logger.info(isThreads ? 'oauth_threads' : 'oauth_meta', `Avvio OAuth per ${platform} (Canale #${channel.id})`, {
+      channelId: channel.id,
+      platform,
+      workspaceName: channel.workspace_name,
+      hasAppId: !!effectiveAppId
+    });
+
     const statePayload = {
       userId: req.user.id,
       channelId: channel.id,
@@ -347,6 +355,7 @@ router.get('/oauth/meta/callback', async (req, res) => {
 
   if (error || !code) {
     const errorMsg = error_description || error || 'Autorizzazione annullata dall\'utente.';
+    await logger.warn('oauth_meta', `Autorizzazione OAuth non riuscita o annullata: ${errorMsg}`, { error, error_description });
     return res.send(`
       <!DOCTYPE html>
       <html>
@@ -473,6 +482,14 @@ router.get('/oauth/meta/callback', async (req, res) => {
   } catch (err) {
     console.error('[Meta OAuth] Errore nel callback:', err.response?.data || err.message);
     const errDetails = err.response?.data?.error?.message || err.message;
+    await logger.error(req.query?.platform || 'oauth_meta', `Errore durante il callback OAuth: ${errDetails}`, {
+      error: err.message,
+      graphError: err.response?.data?.error,
+      status: err.response?.status
+    });
+
+    const debugJson = JSON.stringify(err.response?.data || { message: err.message }, null, 2);
+
     res.send(`
       <!DOCTYPE html>
       <html>
@@ -480,7 +497,7 @@ router.get('/oauth/meta/callback', async (req, res) => {
         <title>Errore Meta OAuth</title>
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0B0F19; color: #F1F5F9; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
-          .card { background: #151D30; border: 1px solid #23304E; border-radius: 16px; padding: 32px; max-width: 480px; text-align: center; }
+          .card { background: #151D30; border: 1px solid #23304E; border-radius: 16px; padding: 32px; max-width: 520px; text-align: center; }
           h2 { color: #EF4444; margin-bottom: 10px; }
           p { color: #94A3B8; font-size: 14px; line-height: 1.5; margin-bottom: 20px; word-break: break-word; }
           button { background: #3B82F6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; }
@@ -491,6 +508,13 @@ router.get('/oauth/meta/callback', async (req, res) => {
           <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
           <h2>Errore durante il collegamento</h2>
           <p>${metaOAuthService.escapeHtml(errDetails)}</p>
+
+          <details style="margin: 16px 0; text-align: left; background: #0B0F19; border: 1px solid #23304E; border-radius: 8px; padding: 12px;">
+            <summary style="cursor: pointer; color: #94A3B8; font-size: 12px; font-weight: 600;">🔍 Dettagli Tecnici & Diagnostica</summary>
+            <pre id="errPre" style="color: #F87171; font-size: 11px; margin-top: 8px; white-space: pre-wrap; word-break: break-all;">${metaOAuthService.escapeHtml(debugJson)}</pre>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('errPre').innerText); this.innerText='Copiato!';" style="margin-top: 8px; background: #1E293B; color: #E2E8F0; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">📋 Copia Log Errore</button>
+          </details>
+
           <button onclick="window.close()">Chiudi Finestra</button>
         </div>
       </body>
@@ -1248,6 +1272,48 @@ router.post('/settings/backup', authMiddleware, async (req, res) => {
 
 router.get('/scheduler/logs', (req, res) => {
   res.json({ logs: scheduler.getRecentLogs() });
+});
+
+// -------------------------------------------------------------
+// SYSTEM DIAGNOSTICS & AUDIT LOGS
+// -------------------------------------------------------------
+router.get('/logs', authMiddleware, async (req, res) => {
+  try {
+    const { limit = 100, level, category, search } = req.query;
+    const logs = await logger.getLogs({ limit, level, category, search });
+    res.json({ success: true, logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/logs', authMiddleware, async (req, res) => {
+  try {
+    await logger.clearLogs();
+    await logger.info('system', 'Registro log cancellato dall\'utente', { userId: req.user.id });
+    res.json({ success: true, message: 'Log cancellati con successo' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/logs/download', authMiddleware, async (req, res) => {
+  try {
+    const logs = await logger.getLogs({ limit: 500 });
+    let textOutput = `=== REGISTRO DIAGNOSTICA & LOG - NONPOSTO.IO ===\nEsportato il: ${new Date().toISOString()}\n\n`;
+    logs.forEach(l => {
+      textOutput += `[${l.created_at}] [${l.level}] [${l.category.toUpperCase()}]: ${l.message}\n`;
+      if (l.details_json && l.details_json !== '{}') {
+        textOutput += `   Dettagli: ${l.details_json}\n`;
+      }
+      textOutput += '\n';
+    });
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="nonposto-system-logs.txt"');
+    res.send(textOutput);
+  } catch (err) {
+    res.status(500).send(`Errore esportazione log: ${err.message}`);
+  }
 });
 
 module.exports = router;
