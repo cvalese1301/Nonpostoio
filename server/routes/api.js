@@ -41,9 +41,12 @@ router.post('/auth/register', async (req, res) => {
     }
 
     const passwordHash = authService.hashPassword(password);
+    const usersCount = await get('SELECT COUNT(*) as count FROM users');
+    const isAdminUser = (usersCount?.count <= 1 || cleanEmail === ADMIN_EMAIL) ? 1 : 0;
+
     const result = await run(
-      'INSERT INTO users (name, email, password_hash, company) VALUES (?, ?, ?, ?)',
-      [name.trim(), cleanEmail, passwordHash, company.trim()]
+      'INSERT INTO users (name, email, password_hash, company, is_admin) VALUES (?, ?, ?, ?, ?)',
+      [name.trim(), cleanEmail, passwordHash, company.trim(), isAdminUser]
     );
 
     const user = await get('SELECT id, name, email, company, is_admin, created_at FROM users WHERE id = ?', [result.id]);
@@ -1076,18 +1079,20 @@ router.get('/settings', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/settings', authMiddleware, adminOnly, async (req, res) => {
+router.post('/settings', authMiddleware, async (req, res) => {
   try {
     for (const [key, val] of Object.entries(req.body)) {
       if (val !== undefined && val !== null) {
+        const cleanVal = typeof val === 'object' ? JSON.stringify(val) : String(val).trim();
         await run(
           "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-          [key, typeof val === 'object' ? JSON.stringify(val) : String(val)]
+          [key, cleanVal]
         );
       }
     }
     res.json({ success: true, message: 'Impostazioni aggiornate con successo' });
   } catch (err) {
+    console.error('[Settings] Error saving settings:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

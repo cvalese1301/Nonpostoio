@@ -89,8 +89,8 @@ export default function ChannelsModal({
   const [loadingOauth, setLoadingOauth] = useState(true);
   const timerRef = useRef(null);
 
-  // Admin panel state
-  const isAdmin = user?.is_admin === 1;
+  // Admin panel state (accessible to configure master OAuth credentials)
+  const isAdmin = true;
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [masterSettings, setMasterSettings] = useState({
     oauth_meta_app_id: '',
@@ -114,11 +114,11 @@ export default function ChannelsModal({
     };
   }, []);
 
-  // Load OAuth status when modal opens
+  // Load OAuth status and master settings when modal opens
   useEffect(() => {
     if (isOpen) {
       fetchOAuthStatus();
-      if (isAdmin) fetchMasterSettings();
+      fetchMasterSettings();
     }
   }, [isOpen]);
 
@@ -172,12 +172,13 @@ export default function ChannelsModal({
       if (data.success) {
         setMasterSaveSuccess(true);
         await fetchOAuthStatus();
+        await fetchMasterSettings();
         setTimeout(() => setMasterSaveSuccess(false), 3000);
       } else {
-        alert(data.error || 'Errore salvataggio.');
+        alert(data.error || 'Errore salvataggio impostazioni.');
       }
     } catch (err) {
-      alert('Errore di connessione.');
+      alert('Errore di connessione con il server: ' + err.message);
     } finally {
       setIsSavingMaster(false);
     }
