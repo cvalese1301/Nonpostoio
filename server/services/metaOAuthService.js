@@ -23,9 +23,9 @@ async function getMetaCredentials() {
   const customRedirectRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_redirect_uri']);
 
   return {
-    appId: appIdRow?.value?.trim() || '',
-    appSecret: appSecretRow?.value?.trim() || '',
-    customRedirectUri: customRedirectRow?.value?.trim() || ''
+    appId: appIdRow?.value?.trim() || process.env.OAUTH_META_APP_ID?.trim() || '',
+    appSecret: appSecretRow?.value?.trim() || process.env.OAUTH_META_APP_SECRET?.trim() || '',
+    customRedirectUri: customRedirectRow?.value?.trim() || process.env.OAUTH_META_REDIRECT_URI?.trim() || ''
   };
 }
 

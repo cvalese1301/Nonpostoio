@@ -94,7 +94,33 @@ router.get('/auth/me', authMiddleware, (req, res) => {
 // -------------------------------------------------------------
 router.get('/workspaces', authMiddleware, async (req, res) => {
   try {
-    const workspaces = await all('SELECT * FROM workspaces WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
+    let workspaces = await all('SELECT * FROM workspaces WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
+    if (workspaces.length === 0) {
+      // Check if there is an existing workspace with user_id = 1 (admin seed) to adopt
+      const orphan = await get('SELECT * FROM workspaces WHERE user_id IS NULL OR user_id = 1 LIMIT 1');
+      if (orphan && req.user.id !== 1) {
+        await run('UPDATE workspaces SET user_id = ? WHERE id = ?', [req.user.id, orphan.id]);
+        workspaces = await all('SELECT * FROM workspaces WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
+      } else {
+        const defaultWsName = process.env.DEFAULT_WORKSPACE_NAME || 'Clinica Vyda';
+        const slug = defaultWsName.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now().toString().slice(-4);
+        const wsResult = await run(
+          'INSERT INTO workspaces (user_id, name, slug, color) VALUES (?, ?, ?, ?)',
+          [req.user.id, defaultWsName, slug, '#7C3AED']
+        );
+        const platformKeys = [
+          'facebook', 'instagram', 'tiktok', 'google_business',
+          'linkedin', 'threads', 'x', 'youtube'
+        ];
+        for (const plat of platformKeys) {
+          await run(
+            'INSERT INTO channels (workspace_id, platform, account_name, handle, avatar_url, active, config_json) VALUES (?, ?, ?, ?, ?, 0, ?)',
+            [wsResult.id, plat, '', '', '', '{}']
+          );
+        }
+        workspaces = await all('SELECT * FROM workspaces WHERE user_id = ? ORDER BY name ASC', [req.user.id]);
+      }
+    }
     res.json(workspaces);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -218,11 +244,14 @@ router.get('/oauth/status', authMiddleware, async (req, res) => {
     const oauthSettings = {};
     rows.forEach(r => { oauthSettings[r.key] = r.value; });
 
+    const metaAppId = oauthSettings.oauth_meta_app_id || process.env.OAUTH_META_APP_ID;
+    const metaAppSecret = oauthSettings.oauth_meta_app_secret || process.env.OAUTH_META_APP_SECRET;
+
     // Map to platform availability
     const platforms = {
-      facebook: !!(oauthSettings.oauth_meta_app_id && oauthSettings.oauth_meta_app_secret),
-      instagram: !!(oauthSettings.oauth_meta_app_id && oauthSettings.oauth_meta_app_secret),
-      threads: !!(oauthSettings.oauth_meta_app_id && oauthSettings.oauth_meta_app_secret),
+      facebook: !!(metaAppId && metaAppSecret),
+      instagram: !!(metaAppId && metaAppSecret),
+      threads: !!(metaAppId && metaAppSecret),
       tiktok: !!(oauthSettings.oauth_tiktok_client_key && oauthSettings.oauth_tiktok_client_secret),
       youtube: !!(oauthSettings.oauth_google_client_id && oauthSettings.oauth_google_client_secret),
       google_business: !!(oauthSettings.oauth_google_client_id && oauthSettings.oauth_google_client_secret),
@@ -1073,6 +1102,13 @@ router.get('/settings', authMiddleware, async (req, res) => {
     const rows = await all('SELECT key, value FROM settings');
     const settings = {};
     rows.forEach(r => { settings[r.key] = r.value; });
+
+    if (!settings.oauth_meta_app_id && process.env.OAUTH_META_APP_ID) {
+      settings.oauth_meta_app_id = process.env.OAUTH_META_APP_ID.trim();
+    }
+    if (!settings.oauth_meta_app_secret && process.env.OAUTH_META_APP_SECRET) {
+      settings.oauth_meta_app_secret = process.env.OAUTH_META_APP_SECRET.trim();
+    }
     res.json(settings);
   } catch (err) {
     res.status(500).json({ error: err.message });

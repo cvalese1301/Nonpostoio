@@ -174,17 +174,52 @@ async function seedInitialData() {
 
   // Seed admin account (never deleted)
   const authService = require('../services/authService');
+  let adminId = null;
   const existingAdmin = await get('SELECT id FROM users WHERE email = ?', [ADMIN_EMAIL]);
   if (!existingAdmin) {
     const passwordHash = authService.hashPassword('christian12');
-    await run(
+    const res = await run(
       'INSERT INTO users (name, email, password_hash, company, is_admin) VALUES (?, ?, ?, ?, 1)',
       ['Admin', ADMIN_EMAIL, passwordHash, 'DNA Creative Agency']
     );
+    adminId = res.id;
     console.log('[DB] Admin account created:', ADMIN_EMAIL);
   } else {
-    // Ensure admin flag is set
+    adminId = existingAdmin.id;
     await run('UPDATE users SET is_admin = 1 WHERE email = ?', [ADMIN_EMAIL]);
+  }
+
+  // Ensure initial default workspace exists (Clinica Vyda) so the app is immediately ready
+  const existingWs = await get('SELECT id FROM workspaces WHERE user_id = ?', [adminId]);
+  if (!existingWs) {
+    const defaultWsName = process.env.DEFAULT_WORKSPACE_NAME || 'Clinica Vyda';
+    const slug = defaultWsName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const wsResult = await run(
+      'INSERT INTO workspaces (user_id, name, slug, color) VALUES (?, ?, ?, ?)',
+      [adminId, defaultWsName, slug, '#7C3AED']
+    );
+    const platformKeys = [
+      'facebook', 'instagram', 'tiktok', 'google_business',
+      'linkedin', 'threads', 'x', 'youtube'
+    ];
+    for (const plat of platformKeys) {
+      await run(
+        'INSERT INTO channels (workspace_id, platform, account_name, handle, avatar_url, active, config_json) VALUES (?, ?, ?, ?, ?, 0, ?)',
+        [wsResult.id, plat, '', '', '', '{}']
+      );
+    }
+    console.log(`[DB] Workspace predefinito inizializzato: ${defaultWsName}`);
+  }
+
+  // Seed settings from environment variables if set in Render Dashboard
+  if (process.env.OAUTH_META_APP_ID) {
+    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_id', ?)", [process.env.OAUTH_META_APP_ID.trim()]);
+  }
+  if (process.env.OAUTH_META_APP_SECRET) {
+    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [process.env.OAUTH_META_APP_SECRET.trim()]);
+  }
+  if (process.env.PCLOUD_ACCESS_TOKEN) {
+    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('pcloud_token', ?)", [process.env.PCLOUD_ACCESS_TOKEN.trim()]);
   }
 }
 
