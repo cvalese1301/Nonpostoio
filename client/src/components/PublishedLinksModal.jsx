@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   X, ExternalLink, Copy, Check, CheckCircle2, Share2, 
-  Sparkles, Calendar, ArrowUpRight, Send
+  Sparkles, Calendar, ArrowUpRight, Send, AlertTriangle, Info
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -30,6 +30,8 @@ export default function PublishedLinksModal({
 
   // Extract published links from post or fallback
   const publishedLinks = post.published_links || [];
+  const hasErrors = publishedLinks.some(l => l.publish_error);
+  const hasLive = publishedLinks.some(l => l.is_live);
   
   // Format the exact text as requested:
   // FB: Link
@@ -115,16 +117,40 @@ export default function PublishedLinksModal({
           </button>
         </div>
 
-        {/* Success Banner if just published */}
+        {/* Banner if just published or has error/live info */}
         {isNewlyPublished && (
-          <div className="links-success-banner">
-            <CheckCircle2 size={22} color="#10B981" style={{ flexShrink: 0 }} />
+          <div 
+            className="links-success-banner"
+            style={{
+              background: hasErrors && !hasLive 
+                ? 'rgba(239, 68, 68, 0.12)' 
+                : (hasErrors ? 'rgba(245, 158, 11, 0.12)' : (hasLive ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)')),
+              borderColor: hasErrors && !hasLive
+                ? 'rgba(239, 68, 68, 0.3)'
+                : (hasErrors ? 'rgba(245, 158, 11, 0.3)' : (hasLive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(139, 92, 246, 0.3)'))
+            }}
+          >
+            {hasErrors && !hasLive ? (
+              <AlertTriangle size={22} color="#EF4444" style={{ flexShrink: 0 }} />
+            ) : hasLive ? (
+              <CheckCircle2 size={22} color="#10B981" style={{ flexShrink: 0 }} />
+            ) : (
+              <Info size={22} color="#8B5CF6" style={{ flexShrink: 0 }} />
+            )}
             <div>
-              <div style={{ fontWeight: 600, color: '#10B981', fontSize: '0.9rem' }}>
-                Pubblicazione completata su {publishedLinks.length} {publishedLinks.length === 1 ? 'canale' : 'canali'}!
+              <div style={{ fontWeight: 600, color: hasErrors && !hasLive ? '#EF4444' : (hasLive ? '#10B981' : '#A78BFA'), fontSize: '0.9rem' }}>
+                {hasLive 
+                  ? `Pubblicato online con successo su ${publishedLinks.filter(l => l.is_live).length} ${publishedLinks.filter(l => l.is_live).length === 1 ? 'canale reale' : 'canali reali'}!`
+                  : (hasErrors 
+                      ? 'Attenzione: si sono verificati errori durante la pubblicazione online' 
+                      : 'Post salvato e generato con successo (anteprima)')}
               </div>
               <div style={{ color: '#CBD5E1', fontSize: '0.78rem' }}>
-                I post sono stati generati e sono ora accessibili online tramite i rispettivi link diretti.
+                {hasLive 
+                  ? 'I contenuti sono ora visibili dal vivo sui tuoi profili social collegati.' 
+                  : (hasErrors 
+                      ? 'Controlla gli errori segnalati di seguito o la sezione "Log di Sistema".' 
+                      : 'Per pubblicare direttamente sui tuoi profili/pagine, collegali tramite OAuth in "Canali Social".')}
               </div>
             </div>
           </div>
@@ -211,13 +237,54 @@ export default function PublishedLinksModal({
 
                   {/* Channel Info & Link */}
                   <div className="published-link-info">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#F8FAFC' }}>
                         {meta.name}
                       </span>
                       {item.handle && (
                         <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
                           {item.handle}
+                        </span>
+                      )}
+
+                      {/* Status Badges */}
+                      {item.is_live && (
+                        <span style={{ 
+                          fontSize: '0.68rem', 
+                          fontWeight: 600, 
+                          background: 'rgba(16, 185, 129, 0.15)', 
+                          color: '#10B981', 
+                          border: '1px solid rgba(16, 185, 129, 0.4)', 
+                          borderRadius: 4, 
+                          padding: '1px 6px' 
+                        }}>
+                          ONLINE (Reale)
+                        </span>
+                      )}
+                      {item.publish_error && (
+                        <span style={{ 
+                          fontSize: '0.68rem', 
+                          fontWeight: 600, 
+                          background: 'rgba(239, 68, 68, 0.15)', 
+                          color: '#EF4444', 
+                          border: '1px solid rgba(239, 68, 68, 0.4)', 
+                          borderRadius: 4, 
+                          padding: '1px 6px' 
+                        }}>
+                          ERRORE API
+                        </span>
+                      )}
+                      {!item.is_live && !item.publish_error && !item.is_connected && (
+                        <span style={{ 
+                          fontSize: '0.68rem', 
+                          fontWeight: 500, 
+                          background: 'rgba(148, 163, 184, 0.12)', 
+                          color: '#94A3B8', 
+                          border: '1px solid rgba(148, 163, 184, 0.25)', 
+                          borderRadius: 4, 
+                          padding: '1px 6px' 
+                        }}>
+                          Anteprima (Canale non collegato)
                         </span>
                       )}
                     </div>
@@ -232,6 +299,19 @@ export default function PublishedLinksModal({
                       <span>{item.url}</span>
                       <ExternalLink size={12} style={{ flexShrink: 0 }} />
                     </a>
+
+                    {item.publish_error && (
+                      <div style={{ fontSize: '0.74rem', color: '#F87171', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+                        <span>{item.publish_error}</span>
+                      </div>
+                    )}
+
+                    {!item.is_live && !item.publish_error && !item.is_connected && (
+                      <div style={{ fontSize: '0.70rem', color: '#64748B', marginTop: 3 }}>
+                        Per pubblicare su questo canale, collegalo tramite OAuth nella sezione <em>Canali Social</em>.
+                      </div>
+                    )}
                   </div>
 
                   {/* Action Buttons */}

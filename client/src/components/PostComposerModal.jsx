@@ -42,6 +42,7 @@ export default function PostComposerModal({
   const [mediaUrls, setMediaUrls] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isAiOptimizing, setIsAiOptimizing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Platform specific overrides
   const [customizations, setCustomizations] = useState({
@@ -225,11 +226,19 @@ export default function PostComposerModal({
       id: editingPost?.id
     };
 
-    const saved = await onSavePost(payload);
-    onClose();
-
-    if (status === 'published' && saved && onViewPostLinks) {
-      onViewPostLinks(saved, true);
+    setIsSaving(true);
+    try {
+      const saved = await onSavePost(payload);
+      if (saved && !saved.error) {
+        onClose();
+        if (status === 'published' && onViewPostLinks) {
+          onViewPostLinks(saved, true);
+        }
+      }
+    } catch (err) {
+      console.error('Post submit error:', err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -648,6 +657,7 @@ export default function PostComposerModal({
             <button
               type="button"
               className="btn-secondary"
+              disabled={isSaving || isUploading}
               onClick={() => {
                 setStatus('draft');
                 setTimeout(() => document.querySelector('.composer-form-pane')?.requestSubmit(), 50);
@@ -658,11 +668,18 @@ export default function PostComposerModal({
             <button
               type="button"
               className="btn-primary"
+              disabled={isSaving || isUploading}
               onClick={() => document.querySelector('.composer-form-pane')?.requestSubmit()}
               id="btn-confirm-post"
             >
-              <Send size={16} />
-              <span>{status === 'published' ? 'Pubblica Adesso' : 'Programma Post'}</span>
+              {isSaving ? (
+                <span>{status === 'published' ? 'Pubblicazione in corso...' : 'Salvataggio...'}</span>
+              ) : (
+                <>
+                  <Send size={16} />
+                  <span>{status === 'published' ? 'Pubblica Adesso' : 'Programma Post'}</span>
+                </>
+              )}
             </button>
           </div>
         </div>

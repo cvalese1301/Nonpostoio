@@ -146,9 +146,10 @@ export default function CalendarView({
     // Calculate new scheduled date keeping the original time or default 10:00
     let originalHours = 10;
     let originalMinutes = 0;
-    if (draggedPost.scheduled_at) {
+    const refDate = draggedPost.scheduled_at || draggedPost.published_at || draggedPost.created_at;
+    if (refDate) {
       try {
-        const d = parseISO(draggedPost.scheduled_at);
+        const d = parseISO(refDate);
         originalHours = d.getHours();
         originalMinutes = d.getMinutes();
       } catch (err) {}
@@ -280,9 +281,10 @@ export default function CalendarView({
             <div className="calendar-grid">
               {calendarDays.map((day, idx) => {
                 const dayPosts = filteredPosts.filter(p => {
-                  if (!p.scheduled_at) return false;
+                  const targetDate = p.scheduled_at || p.published_at || p.created_at;
+                  if (!targetDate) return false;
                   try {
-                    return isSameDay(parseISO(p.scheduled_at), day);
+                    return isSameDay(parseISO(targetDate), day);
                   } catch (e) {
                     return false;
                   }
@@ -323,9 +325,10 @@ export default function CalendarView({
                         const isSelected = selectedPostIds.includes(post.id);
 
                         let timeStr = '10:00';
-                        if (post.scheduled_at) {
+                        const targetDate = post.scheduled_at || post.published_at || post.created_at;
+                        if (targetDate) {
                           try {
-                            timeStr = format(parseISO(post.scheduled_at), 'HH:mm');
+                            timeStr = format(parseISO(targetDate), 'HH:mm');
                           } catch (e) {}
                         }
 
@@ -333,7 +336,7 @@ export default function CalendarView({
                           <div
                             key={post.id}
                             className={`post-card ${draggedPost?.id === post.id ? 'dragging' : ''} ${isSelectionMode ? 'in-selection-mode' : ''} ${isSelected ? 'selected-for-delete' : ''} ${isSelectionMode && !isEligible ? 'dimmed-not-eligible' : ''}`}
-                            draggable={!isSelectionMode}
+                            draggable={!isSelectionMode && post.status !== 'published'}
                             onDragStart={(e) => !isSelectionMode && handleDragStart(e, post)}
                             onClick={(e) => {
                               if (isSelectionMode) {
@@ -524,7 +527,11 @@ export default function CalendarView({
                       <p style={{ color: '#94A3B8', fontSize: '0.85rem', marginBottom: 8 }}>{post.base_content}</p>
                       
                       <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: '0.78rem', color: '#64748B' }}>
-                        <span>Data: {post.scheduled_at ? format(parseISO(post.scheduled_at), 'dd/MM/yyyy HH:mm') : 'Bozza non pianificata'}</span>
+                        <span>Data: {post.scheduled_at 
+                          ? format(parseISO(post.scheduled_at), 'dd/MM/yyyy HH:mm') 
+                          : (post.published_at 
+                              ? `Pubblicato il ${format(parseISO(post.published_at), 'dd/MM/yyyy HH:mm')}` 
+                              : (post.created_at ? `Creato il ${format(parseISO(post.created_at), 'dd/MM/yyyy HH:mm')}` : 'Bozza non pianificata'))}</span>
                         <div style={{ display: 'flex', gap: 4 }}>
                           {platforms.map(plat => (
                             <span key={plat} className={`platform-badge-mini platform-${plat}`}>

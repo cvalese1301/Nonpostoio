@@ -10,6 +10,7 @@ const { MCP_TOOLS, handleMcpToolCall } = require('../mcp/mcpTools');
 const { buildPublishedLinks, generatePlatformPostUrl } = require('../services/postLinksHelper');
 const metaOAuthService = require('../services/metaOAuthService');
 const logger = require('../services/logger');
+const socialPublishService = require('../services/socialPublishService');
 
 // Middleware: require admin role
 function adminOnly(req, res, next) {
@@ -762,7 +763,7 @@ router.get('/posts', authMiddleware, async (req, res) => {
       params.push(status);
     }
 
-    query += ` ORDER BY scheduled_at ASC, created_at DESC`;
+    query += ` ORDER BY COALESCE(scheduled_at, published_at, created_at) DESC`;
     const posts = await all(query, params);
 
     // Fetch workspace channels once for linking
@@ -816,9 +817,16 @@ router.post('/posts', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'workspace_id e base_content sono obbligatori' });
     }
 
-    // Verify workspace belongs to user
-    const ws = await get('SELECT id FROM workspaces WHERE id = ? AND user_id = ?', [workspace_id, req.user.id]);
-    if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
+    // Verify workspace belongs to user or admin
+    let ws = await get('SELECT id, user_id FROM workspaces WHERE id = ?', [workspace_id]);
+    if (!ws) return res.status(404).json({ error: 'Workspace non trovato' });
+    if (ws.user_id !== req.user.id && req.user.role !== 'admin') {
+      if (!ws.user_id) {
+        await run('UPDATE workspaces SET user_id = ? WHERE id = ?', [req.user.id, workspace_id]);
+      } else {
+        return res.status(403).json({ error: 'Accesso negato al workspace' });
+      }
+    }
 
     const isPublished = status === 'published';
     const publishedAtVal = isPublished ? new Date().toISOString() : null;
@@ -840,13 +848,13 @@ router.post('/posts', authMiddleware, async (req, res) => {
     for (const [plat, data] of Object.entries(customizations)) {
       if (!data) continue;
       const ch = channelMap[plat];
-      const publishedUrl = isPublished
+      const initialUrl = isPublished
         ? (data.published_url || generatePlatformPostUrl(plat, ch?.handle || ch?.account_name || '', postId))
         : null;
 
       await run(
-        `INSERT INTO post_customizations (post_id, platform, custom_content, hashtags, first_comment, media_urls_json, extra_options_json, published_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO post_customizations (post_id, platform, custom_content, hashtags, first_comment, media_urls_json, extra_options_json, published_url, publish_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           postId,
           plat,
@@ -855,9 +863,27 @@ router.post('/posts', authMiddleware, async (req, res) => {
           data.first_comment || '',
           JSON.stringify(data.media_urls || []),
           JSON.stringify(data.extra_options || {}),
-          publishedUrl
+          initialUrl,
+          isPublished ? 'publishing' : 'draft'
         ]
       );
+    }
+
+    let publishResults = {};
+    if (isPublished) {
+      // Execute REAL publishing via Meta / Threads Graph API
+      try {
+        publishResults = await socialPublishService.publishPostToSocials({
+          postId,
+          workspaceId: workspace_id,
+          title,
+          baseContent: base_content,
+          customizations
+        });
+      } catch (pubErr) {
+        console.error('[Publish Error]', pubErr);
+        await logger.error('publish', `Errore pubblicazione post #${postId}: ${pubErr.message}`, { postId, error: pubErr.message });
+      }
     }
 
     const createdPost = await get('SELECT * FROM posts WHERE id = ?', [postId]);
@@ -868,6 +894,7 @@ router.post('/posts', authMiddleware, async (req, res) => {
       extra_options: JSON.parse(c.extra_options_json || '{}')
     }));
     createdPost.platforms = createdPost.customizations.map(c => c.platform);
+    createdPost.publish_results = publishResults;
 
     if (isPublished) {
       const { links, summaryText } = buildPublishedLinks(createdPost.customizations, channels, postId);
@@ -958,6 +985,35 @@ router.put('/posts/:id', authMiddleware, async (req, res) => {
       }
     }
 
+    let publishResults = {};
+    if (isPublishing) {
+      // Re-fetch customizations map for publish service
+      const custRows = await all('SELECT * FROM post_customizations WHERE post_id = ?', [postId]);
+      const custMap = {};
+      custRows.forEach(c => {
+        custMap[c.platform] = {
+          custom_content: c.custom_content,
+          hashtags: c.hashtags,
+          first_comment: c.first_comment,
+          media_urls: JSON.parse(c.media_urls_json || '[]'),
+          extra_options: JSON.parse(c.extra_options_json || '{}')
+        };
+      });
+
+      try {
+        publishResults = await socialPublishService.publishPostToSocials({
+          postId,
+          workspaceId: currentPost.workspace_id,
+          title: title !== undefined ? title : currentPost.title,
+          baseContent: base_content !== undefined ? base_content : currentPost.base_content,
+          customizations: Object.keys(customizations).length > 0 ? customizations : custMap
+        });
+      } catch (pubErr) {
+        console.error('[Publish Error]', pubErr);
+        await logger.error('publish', `Errore ri-pubblicazione post #${postId}: ${pubErr.message}`, { postId, error: pubErr.message });
+      }
+    }
+
     const updated = await get('SELECT * FROM posts WHERE id = ?', [postId]);
     const cust = await all('SELECT * FROM post_customizations WHERE post_id = ?', [postId]);
     updated.customizations = cust.map(c => ({
@@ -966,6 +1022,7 @@ router.put('/posts/:id', authMiddleware, async (req, res) => {
       extra_options: JSON.parse(c.extra_options_json || '{}')
     }));
     updated.platforms = updated.customizations.map(c => c.platform);
+    updated.publish_results = publishResults;
 
     if (updated.status === 'published') {
       const { links, summaryText } = buildPublishedLinks(updated.customizations, channels, postId);

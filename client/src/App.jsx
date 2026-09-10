@@ -248,12 +248,19 @@ export default function App() {
           body: JSON.stringify(postPayload)
         });
       }
-      const savedPost = await res.json();
-      fetchPosts(activeWorkspace.id);
-      return savedPost;
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Errore durante il salvataggio del post.');
+        return { error: data.error };
+      }
+      if (activeWorkspace) {
+        fetchPosts(activeWorkspace.id);
+      }
+      return data;
     } catch (err) {
       console.error('Save post error:', err);
-      return null;
+      alert('Errore di comunicazione col server: ' + err.message);
+      return { error: err.message };
     }
   };
 

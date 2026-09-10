@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { all, run, get } = require('../db/database');
 const { generatePlatformPostUrl } = require('./postLinksHelper');
+const socialPublishService = require('./socialPublishService');
 
 class SchedulerService {
   constructor() {
@@ -52,6 +53,30 @@ class SchedulerService {
       [post.id]
     );
 
+    // Call real social publishing service
+    const custMap = {};
+    customizations.forEach(c => {
+      custMap[c.platform] = {
+        custom_content: c.custom_content,
+        hashtags: c.hashtags,
+        first_comment: c.first_comment,
+        media_urls: JSON.parse(c.media_urls_json || '[]'),
+        extra_options: JSON.parse(c.extra_options_json || '{}')
+      };
+    });
+
+    try {
+      await socialPublishService.publishPostToSocials({
+        postId: post.id,
+        workspaceId: post.workspace_id,
+        title: post.title,
+        baseContent: post.base_content,
+        customizations: custMap
+      });
+    } catch (e) {
+      console.error('[Scheduler Real Publish Error]', e);
+    }
+
     // Fetch channels for workspace to get handles
     const channels = await all(
       `SELECT platform, handle, account_name FROM channels WHERE workspace_id = ?`,
@@ -60,7 +85,7 @@ class SchedulerService {
     const channelMap = {};
     channels.forEach(ch => { channelMap[ch.platform] = ch; });
 
-    // Ensure published_url is saved for each channel
+    // Ensure published_url is saved for each channel if missing
     for (const c of customizations) {
       if (!c.published_url) {
         const handle = channelMap[c.platform]?.handle || channelMap[c.platform]?.account_name || '';

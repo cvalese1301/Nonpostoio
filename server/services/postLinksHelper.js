@@ -70,6 +70,8 @@ function buildPublishedLinks(customizations = [], channels = [], postId = '') {
     const ch = channelMap[plat];
     const handle = ch?.handle || ch?.account_name || '';
     const url = c.published_url || generatePlatformPostUrl(plat, handle, postId || c.post_id);
+    const isChannelConfigured = !!(ch && ch.active === 1 && ch.config_json && ch.config_json.includes('access_token'));
+    const isLive = c.publish_status === 'published_live' || (!c.publish_error && isChannelConfigured && c.published_url && !c.published_url.includes('/brand/'));
 
     return {
       platform: plat,
@@ -78,7 +80,10 @@ function buildPublishedLinks(customizations = [], channels = [], postId = '') {
       color: meta.color,
       url,
       account_name: ch?.account_name || '',
-      handle: ch?.handle || ''
+      handle: ch?.handle || '',
+      is_live: isLive,
+      is_connected: isChannelConfigured,
+      publish_error: c.publish_error || null
     };
   });
 
@@ -87,7 +92,10 @@ function buildPublishedLinks(customizations = [], channels = [], postId = '') {
   // IG: link
   // TikTok: link
   // ecc...
-  const summaryText = links.map(l => `${l.label}: ${l.url}`).join('\n');
+  const summaryText = links.map(l => {
+    const note = l.publish_error ? ` (Errore: ${l.publish_error})` : (!l.is_live && !l.is_connected ? ' (Anteprima)' : '');
+    return `${l.label}: ${l.url}${note}`;
+  }).join('\n');
 
   return { links, summaryText };
 }
