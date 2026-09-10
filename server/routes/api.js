@@ -393,6 +393,28 @@ router.get('/oauth/meta/callback', async (req, res) => {
       platform
     });
 
+    // Check which pages are already connected across user's channels
+    const userChannels = await all(
+      `SELECT c.config_json, c.account_name, c.handle 
+       FROM channels c 
+       JOIN workspaces w ON c.workspace_id = w.id 
+       WHERE w.user_id = ? AND c.active = 1 AND c.platform = ?`,
+      [userId, platform]
+    );
+
+    const connectedMap = new Set();
+    userChannels.forEach(ch => {
+      try {
+        const cfg = JSON.parse(ch.config_json || '{}');
+        if (cfg.account_id) connectedMap.add(String(cfg.account_id));
+        if (cfg.page_id) connectedMap.add(String(cfg.page_id));
+      } catch (e) {}
+    });
+
+    accounts.forEach(acc => {
+      acc.isAlreadyConnected = connectedMap.has(String(acc.id));
+    });
+
     const stateToken = Buffer.from(JSON.stringify({
       userId,
       channelId,

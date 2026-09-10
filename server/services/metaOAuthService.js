@@ -15,7 +15,7 @@ function escapeHtml(str) {
 }
 
 /**
- * Retrieve Meta App ID & Secret from settings
+ * Retrieve Meta App ID & Secret from settings or environment variables
  */
 async function getMetaCredentials() {
   const appIdRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_app_id']);
@@ -40,23 +40,33 @@ function resolveRedirectUri(req, customRedirectUri = '') {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
     return 'http://localhost:3000/api/oauth/meta/callback';
   }
-  // Public domains (like nonpostoio.onrender.com) strictly require HTTPS for Meta OAuth
+  // Public domains (e.g. nonpostoio.onrender.com) strictly require HTTPS for Meta OAuth
   return `https://${host}/api/oauth/meta/callback`;
 }
 
 /**
- * Generate Meta OAuth Dialog URL
+ * Generate Meta OAuth Dialog URL with full Business Integration scopes (identical to Publer/Publie.io)
  */
 function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state }) {
+  // Complete set of scopes used by professional platforms like Publie.io & Publer
   let scopes = [
     'pages_show_list',
     'pages_read_engagement',
     'pages_manage_posts',
+    'pages_manage_engagement',
+    'pages_read_user_content',
+    'read_insights',
+    'business_management',
     'public_profile'
   ];
 
   if (platform === 'instagram') {
-    scopes.push('instagram_basic', 'instagram_content_publish');
+    scopes.push(
+      'instagram_basic',
+      'instagram_content_publish',
+      'instagram_manage_comments',
+      'instagram_manage_insights'
+    );
   } else if (platform === 'threads') {
     scopes = ['threads_basic', 'threads_content_publish'];
   }
@@ -103,7 +113,7 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri }) {
 }
 
 /**
- * Fetch Pages and associated Instagram Business Accounts from Graph API
+ * Fetch Pages and associated Instagram Business Accounts from Graph API (with limit: 100 and pagination)
  */
 async function fetchMetaAccounts({ userToken, platform }) {
   let pages = [];
@@ -120,10 +130,10 @@ async function fetchMetaAccounts({ userToken, platform }) {
       const batch = accountsRes.data.data || [];
       pages = pages.concat(batch);
 
-      // Check for next page
+      // Follow pagination if user has > 100 pages
       if (accountsRes.data.paging && accountsRes.data.paging.next) {
         nextUrl = accountsRes.data.paging.next;
-        params = {}; // nextUrl already contains necessary query params
+        params = {};
       } else {
         nextUrl = null;
       }
@@ -131,6 +141,7 @@ async function fetchMetaAccounts({ userToken, platform }) {
   } catch (err) {
     console.error('[Meta OAuth] Errore durante il recupero delle pagine:', err.response?.data || err.message);
   }
+
   const selectableAccounts = [];
 
   if (platform === 'facebook') {
@@ -161,21 +172,25 @@ async function fetchMetaAccounts({ userToken, platform }) {
       }
     });
   } else if (platform === 'threads') {
-    const meRes = await axios.get('https://graph.facebook.com/v20.0/me', {
-      params: {
-        fields: 'id,name,picture{url}',
-        access_token: userToken
-      }
-    });
-    selectableAccounts.push({
-      id: meRes.data.id,
-      name: meRes.data.name,
-      handle: `@${meRes.data.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
-      avatar_url: meRes.data.picture?.data?.url || '',
-      category: 'Profilo Threads',
-      access_token: userToken,
-      type: 'threads'
-    });
+    try {
+      const meRes = await axios.get('https://graph.facebook.com/v20.0/me', {
+        params: {
+          fields: 'id,name,picture{url}',
+          access_token: userToken
+        }
+      });
+      selectableAccounts.push({
+        id: meRes.data.id,
+        name: meRes.data.name,
+        handle: `@${meRes.data.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
+        avatar_url: meRes.data.picture?.data?.url || '',
+        category: 'Profilo Threads',
+        access_token: userToken,
+        type: 'threads'
+      });
+    } catch (e) {
+      console.warn('[Threads] Fallback profilo non disponibile');
+    }
   }
 
   return {
@@ -185,14 +200,12 @@ async function fetchMetaAccounts({ userToken, platform }) {
 }
 
 /**
- * Render Interactive HTML UI for selecting which account to link
+ * Render Interactive HTML UI for selecting which account to link (Identical to Publie.io UI)
  */
 function renderAccountSelectionHtml({ platform, accounts, stateToken, rawPagesCount, workspaceName }) {
   const isFb = platform === 'facebook';
   const isIg = platform === 'instagram';
-  const platformTitle = isFb ? 'Pagina Facebook' : isIg ? 'Account Instagram Business' : 'Account Threads';
-  const platformColor = isFb ? '#1877F2' : isIg ? '#E1306C' : '#000000';
-  const brandIcon = isFb ? 'f' : isIg ? '📸' : '🧵';
+  const platformTitle = isFb ? 'Facebook' : isIg ? 'Instagram' : 'Threads';
 
   const accountsJson = JSON.stringify(accounts).replace(/</g, '\\u003c');
 
@@ -202,246 +215,293 @@ function renderAccountSelectionHtml({ platform, accounts, stateToken, rawPagesCo
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Collega ${platformTitle} - NonPosto.io</title>
+  <title>${platformTitle} - Collega Canali</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
     body {
-      background: #0B0F19;
-      color: #F1F5F9;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      background: #FFFFFF;
+      color: #0F172A;
+      padding: 32px 36px 100px;
       min-height: 100vh;
-      padding: 24px;
-    }
-    .container {
-      background: #151D30;
-      border: 1px solid #23304E;
-      border-radius: 20px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
-      width: 100%;
-      max-width: 520px;
-      padding: 32px 28px;
       position: relative;
-      overflow: hidden;
     }
-    .top-header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 20px;
+    .wrapper {
+      max-width: 860px;
+      margin: 0 auto;
     }
-    .icon-badge {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      background: ${platformColor};
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      font-weight: bold;
-      color: white;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-      flex-shrink: 0;
-    }
-    .header-text h2 {
-      font-size: 19px;
+    /* Main Platform Title */
+    .page-title {
+      font-size: 26px;
       font-weight: 700;
-      color: #FFFFFF;
-      line-height: 1.3;
+      color: #0A2540;
+      margin-bottom: 24px;
     }
-    .header-text p {
-      font-size: 13px;
-      color: #94A3B8;
-      margin-top: 2px;
+    /* Publie.io style Notice Card */
+    .notice-card {
+      background-color: #FEF9EE;
+      border: 1px solid #FDE68A;
+      border-radius: 12px;
+      padding: 18px 22px;
+      margin-bottom: 30px;
     }
-    .workspace-banner {
-      background: rgba(124, 58, 237, 0.12);
-      border: 1px solid rgba(124, 58, 237, 0.3);
-      padding: 8px 14px;
-      border-radius: 10px;
-      font-size: 12px;
-      color: #C4B5FD;
-      margin-bottom: 20px;
+    .notice-header {
       display: flex;
       align-items: center;
       gap: 8px;
+      color: #B45309;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 8px;
     }
-    .list-title {
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #64748B;
+    .notice-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #F59E0B;
+      color: white;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    .notice-desc {
+      font-size: 13.5px;
+      color: #92400E;
+      line-height: 1.5;
       margin-bottom: 12px;
     }
-    .accounts-list {
+    .notice-desc a {
+      color: #B45309;
+      font-weight: 600;
+      text-decoration: underline;
+    }
+    .notice-links {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      max-height: 340px;
-      overflow-y: auto;
-      padding-right: 4px;
+      gap: 6px;
     }
-    .accounts-list::-webkit-scrollbar {
-      width: 6px;
+    .notice-links a {
+      font-size: 13px;
+      color: #B45309;
+      text-decoration: underline;
+      display: inline-block;
+      width: fit-content;
     }
-    .accounts-list::-webkit-scrollbar-thumb {
-      background: #23304E;
-      border-radius: 4px;
+    .notice-links a:hover {
+      color: #78350F;
     }
-    .account-card {
-      background: #1B253D;
-      border: 1px solid #283756;
-      border-radius: 14px;
-      padding: 14px 16px;
+    /* Toolbar: Count + Search */
+    .toolbar-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      transition: all 0.2s ease;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
     }
-    .account-card:hover {
-      border-color: #3B82F6;
-      background: #202D49;
-      transform: translateY(-1px);
+    .pages-counter {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0A2540;
     }
-    .account-info {
+    .search-wrapper {
+      position: relative;
+      width: 260px;
+    }
+    .search-input {
+      width: 100%;
+      padding: 9px 36px 9px 14px;
+      border: 1px solid #CBD5E1;
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: #1E293B;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus {
+      border-color: #2563EB;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .search-icon {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #64748B;
+      pointer-events: none;
+      font-size: 14px;
+    }
+    /* Pages List */
+    .pages-table {
+      border-top: 1px solid #E2E8F0;
+      display: flex;
+      flex-direction: column;
+    }
+    .page-row {
       display: flex;
       align-items: center;
-      gap: 12px;
+      justify-content: space-between;
+      padding: 16px 8px;
+      border-bottom: 1px solid #E2E8F0;
+      transition: background-color 0.15s;
+      cursor: pointer;
+    }
+    .page-row:hover {
+      background-color: #F8FAFC;
+    }
+    .page-row.selected {
+      background-color: #EFF6FF;
+    }
+    .page-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
       min-width: 0;
       flex: 1;
     }
-    .account-avatar {
-      width: 44px;
-      height: 44px;
+    .page-avatar {
+      width: 38px;
+      height: 38px;
       border-radius: 50%;
       object-fit: cover;
-      background: #23304E;
-      border: 2px solid rgba(255,255,255,0.1);
+      background: #E2E8F0;
       flex-shrink: 0;
     }
     .avatar-fallback {
-      width: 44px;
-      height: 44px;
+      width: 38px;
+      height: 38px;
       border-radius: 50%;
-      background: #334155;
+      background: #0A2540;
+      color: white;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: bold;
-      color: #E2E8F0;
+      font-weight: 700;
+      font-size: 15px;
       flex-shrink: 0;
     }
-    .account-details {
-      min-width: 0;
-    }
-    .account-name {
-      font-size: 14px;
+    .page-name {
+      font-size: 14.5px;
       font-weight: 600;
-      color: #F8FAFC;
+      color: #1E293B;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .account-handle {
-      font-size: 12px;
-      color: #38BDF8;
-      margin-top: 1px;
-    }
-    .account-category {
-      font-size: 11px;
-      color: #94A3B8;
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .btn-connect {
-      background: linear-gradient(135deg, #3B82F6, #2563EB);
-      color: white;
-      border: none;
-      border-radius: 10px;
-      padding: 9px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.2s;
+    .page-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
       flex-shrink: 0;
     }
-    .btn-connect:hover {
-      filter: brightness(1.15);
-      transform: scale(1.02);
+    /* Badges */
+    .badge-connected {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #059669;
+      font-size: 13.5px;
+      font-weight: 600;
     }
-    .btn-connect:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
+    .badge-connected svg {
+      color: #059669;
+    }
+    /* Checkbox */
+    .checkbox-box {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #94A3B8;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      background: white;
+    }
+    .page-row:hover .checkbox-box {
+      border-color: #2563EB;
+    }
+    .checkbox-box.checked {
+      background: #2563EB;
+      border-color: #2563EB;
+    }
+    .checkbox-box svg {
+      display: none;
+    }
+    .checkbox-box.checked svg {
+      display: block;
     }
     /* Empty State */
     .empty-state {
-      background: rgba(30, 41, 59, 0.5);
-      border: 1px dashed #334155;
-      border-radius: 14px;
-      padding: 24px;
+      padding: 40px 20px;
       text-align: center;
+      color: #64748B;
     }
-    .empty-icon {
-      font-size: 36px;
-      margin-bottom: 12px;
+    /* Floating Action Bar */
+    .action-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: white;
+      border-top: 1px solid #E2E8F0;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+      padding: 16px 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 100;
+      transform: translateY(100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .empty-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #F8FAFC;
-      margin-bottom: 8px;
+    .action-bar.visible {
+      transform: translateY(0);
     }
-    .empty-desc {
-      font-size: 13px;
-      color: #94A3B8;
-      line-height: 1.5;
-      margin-bottom: 16px;
+    .action-bar-content {
+      max-width: 860px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
-    .empty-tips {
-      text-align: left;
-      background: #0F172A;
-      border-radius: 10px;
-      padding: 12px 16px;
-      font-size: 12px;
-      color: #CBD5E1;
-      margin-bottom: 20px;
-      line-height: 1.6;
+    .target-workspace {
+      font-size: 14px;
+      color: #475569;
     }
-    .empty-tips li {
-      margin-left: 16px;
+    .target-workspace strong {
+      color: #0F172A;
     }
-    .btn-secondary {
-      background: #334155;
-      color: #F1F5F9;
+    .btn-connect-action {
+      background: #2563EB;
+      color: white;
       border: none;
-      border-radius: 10px;
-      padding: 10px 20px;
-      font-size: 13px;
+      border-radius: 8px;
+      padding: 11px 24px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s, transform 0.1s;
     }
-    .btn-secondary:hover {
-      background: #475569;
+    .btn-connect-action:hover {
+      background: #1D4ED8;
+    }
+    .btn-connect-action:active {
+      transform: scale(0.98);
     }
     /* Overlay for loading / success */
     .overlay {
-      position: absolute;
+      position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(11, 15, 25, 0.94);
+      background: rgba(255, 255, 255, 0.94);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      z-index: 50;
+      z-index: 200;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.25s ease;
@@ -455,129 +515,183 @@ function renderAccountSelectionHtml({ platform, accounts, stateToken, rawPagesCo
     .spinner {
       width: 44px;
       height: 44px;
-      border: 3px solid #1E293B;
-      border-top: 3px solid #3B82F6;
+      border: 3px solid #E2E8F0;
+      border-top: 3px solid #2563EB;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
       margin-bottom: 16px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .success-icon {
-      width: 60px;
-      height: 60px;
+      width: 56px;
+      height: 56px;
       border-radius: 50%;
       background: #10B981;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 32px;
+      font-size: 28px;
       color: white;
       margin-bottom: 16px;
-      animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    }
-    @keyframes pop {
-      0% { transform: scale(0.5); opacity: 0; }
-      100% { transform: scale(1); opacity: 1; }
     }
     .overlay-title {
       font-size: 18px;
       font-weight: 700;
-      color: #F8FAFC;
+      color: #0F172A;
       margin-bottom: 6px;
     }
     .overlay-sub {
-      font-size: 13px;
-      color: #94A3B8;
+      font-size: 13.5px;
+      color: #64748B;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="top-header">
-      <div class="icon-badge">${brandIcon}</div>
-      <div class="header-text">
-        <h2>Collega ${platformTitle}</h2>
-        <p>Seleziona l'account che desideri sincronizzare</p>
+  <div class="wrapper">
+    <!-- Platform Title -->
+    <h1 class="page-title">${platformTitle}</h1>
+
+    <!-- Publie Notice Card -->
+    <div class="notice-card">
+      <div class="notice-header">
+        <span class="notice-icon">ℹ</span>
+        <strong>${platformTitle}</strong>
+      </div>
+      <p class="notice-desc">
+        Se non vedi tutte le tue pagine ${platformTitle} controlla i 
+        <a href="https://www.facebook.com/settings?tab=business_tools" target="_blank">permessi concessi</a> 
+        alla Integrazione Business su Facebook.
+      </p>
+      <div class="notice-links">
+        <a href="https://www.facebook.com/settings?tab=business_tools" target="_blank">Vai alla sezione integrazioni business su Facebook</a>
+        <a href="https://www.facebook.com/settings?tab=applications" target="_blank">Leggi la guida su come modificare i permessi su Facebook</a>
       </div>
     </div>
 
-    ${workspaceName ? `
-    <div class="workspace-banner">
-      <span>🏢</span> Spazio di lavoro: <strong>${escapeHtml(workspaceName)}</strong>
-    </div>` : ''}
-
-    ${accounts.length > 0 ? `
-      <div class="list-title">Account disponibili (${accounts.length})</div>
-      <div class="accounts-list">
-        ${accounts.map((acc, idx) => `
-          <div class="account-card">
-            <div class="account-info">
-              ${acc.avatar_url ? `
-                <img class="account-avatar" src="${escapeHtml(acc.avatar_url)}" alt="${escapeHtml(acc.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-                <div class="avatar-fallback" style="display:none;">${escapeHtml(acc.name.charAt(0).toUpperCase())}</div>
-              ` : `
-                <div class="avatar-fallback">${escapeHtml(acc.name.charAt(0).toUpperCase())}</div>
-              `}
-              <div class="account-details">
-                <div class="account-name" title="${escapeHtml(acc.name)}">${escapeHtml(acc.name)}</div>
-                <div class="account-handle">${escapeHtml(acc.handle)}</div>
-                ${acc.category ? `<div class="account-category">${escapeHtml(acc.category)}</div>` : ''}
-              </div>
-            </div>
-            <button class="btn-connect" onclick="selectAccount(${idx})">
-              Collega
-            </button>
-          </div>
-        `).join('')}
+    <!-- Toolbar -->
+    <div class="toolbar-row">
+      <div class="pages-counter"><span id="visibleCount">${accounts.length}</span> Pagine</div>
+      <div class="search-wrapper">
+        <input 
+          type="text" 
+          id="searchInput" 
+          class="search-input" 
+          placeholder="Cerca Pagine" 
+          oninput="filterPages(this.value)" 
+        />
+        <span class="search-icon">🔍</span>
       </div>
-    ` : `
-      <div class="empty-state">
-        <div class="empty-icon">⚠️</div>
-        <div class="empty-title">Nessun account trovato</div>
-        <div class="empty-desc">
-          ${isFb 
-            ? 'Non abbiamo trovato nessuna Pagina Facebook amministrata da questo profilo.' 
-            : isIg 
-            ? `Abbiamo trovato ${rawPagesCount} Pagine Facebook, ma nessuna ha un Account Instagram Professionale collegato.` 
-            : 'Nessun account trovato per questa piattaforma.'}
-        </div>
-        
-        <div class="empty-tips">
-          <strong>Come risolvere:</strong>
-          <ul>
-            ${isFb ? `
-              <li>Assicurati di aver creato una Pagina Facebook con il profilo con cui hai effettuato il login.</li>
-              <li>Verifica di avere il ruolo di Amministratore o Editor sulla Pagina.</li>
-            ` : isIg ? `
-              <li>Apri l'app di <strong>Instagram</strong> sul telefono.</li>
-              <li>Vai sul Profilo &gt; <em>Modifica Profilo</em> e assicurati che sia configurato come <strong>Account Professionale (Aziendale o Creator)</strong>.</li>
-              <li>Sotto <em>Informazioni pubbliche sull'azienda</em> &gt; <em>Pagina</em>, collega la Pagina Facebook.</li>
+    </div>
+
+    <!-- Pages List -->
+    <div class="pages-table" id="pagesTable">
+      ${accounts.length > 0 ? accounts.map((acc, idx) => `
+        <div 
+          class="page-row" 
+          id="row-${idx}" 
+          data-name="${escapeHtml(acc.name.toLowerCase())}" 
+          onclick="toggleSelect(${idx}, ${acc.isAlreadyConnected ? 'true' : 'false'})"
+        >
+          <div class="page-left">
+            ${acc.avatar_url ? `
+              <img class="page-avatar" src="${escapeHtml(acc.avatar_url)}" alt="${escapeHtml(acc.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+              <div class="avatar-fallback" style="display:none;">${escapeHtml(acc.name.charAt(0).toUpperCase())}</div>
             ` : `
-              <li>Verifica che il tuo account sia abilitato per la pubblicazione via API.</li>
+              <div class="avatar-fallback">${escapeHtml(acc.name.charAt(0).toUpperCase())}</div>
             `}
-          </ul>
+            <div class="page-name">${escapeHtml(acc.name)}</div>
+          </div>
+
+          <div class="page-right">
+            ${acc.isAlreadyConnected ? `
+              <span class="badge-connected">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Già connesso
+              </span>
+            ` : `
+              <div class="checkbox-box" id="chk-${idx}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+            `}
+          </div>
         </div>
-
-        <button class="btn-secondary" onclick="window.close()">Chiudi Finestra</button>
-      </div>
-    `}
-
-    <!-- Loading / Success Overlay -->
-    <div id="overlay" class="overlay">
-      <div id="spinner" class="spinner"></div>
-      <div id="success-icon" class="success-icon" style="display:none;">✓</div>
-      <div id="overlay-title" class="overlay-title">Collegamento in corso...</div>
-      <div id="overlay-sub" class="overlay-sub">Stiamo configurando il token e i permessi del canale.</div>
+      `).join('') : `
+        <div class="empty-state">
+          Nessuna Pagina trovata. Assicurati di aver autorizzato le Pagine nella finestra di accesso Facebook.
+        </div>
+      `}
     </div>
+  </div>
+
+  <!-- Floating Action Bar when a page is selected -->
+  <div class="action-bar" id="actionBar">
+    <div class="action-bar-content">
+      <div class="target-workspace">
+        Collega a: <strong>${escapeHtml(workspaceName || 'Clinica Vyda')}</strong> (<span id="selectedPageName"></span>)
+      </div>
+      <button class="btn-connect-action" id="btnConnect" onclick="finalizeConnection()">
+        Collega Pagina Selezionata
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading / Success Overlay -->
+  <div id="overlay" class="overlay">
+    <div id="spinner" class="spinner"></div>
+    <div id="success-icon" class="success-icon" style="display:none;">✓</div>
+    <div id="overlay-title" class="overlay-title">Collegamento in corso...</div>
+    <div id="overlay-sub" class="overlay-sub">Stiamo configurando il token e i permessi del canale.</div>
   </div>
 
   <script>
     const accounts = ${accountsJson};
     const stateToken = ${JSON.stringify(stateToken)};
     const platform = ${JSON.stringify(platform)};
+    let selectedIndex = null;
 
-    async function selectAccount(index) {
-      const selected = accounts[index];
+    function toggleSelect(index, isAlreadyConnected) {
+      if (isAlreadyConnected) return;
+
+      if (selectedIndex === index) {
+        // Deselect
+        selectedIndex = null;
+        document.getElementById('row-' + index).classList.remove('selected');
+        document.getElementById('chk-' + index).classList.remove('checked');
+        document.getElementById('actionBar').classList.remove('visible');
+      } else {
+        // Uncheck previous
+        if (selectedIndex !== null) {
+          const prevRow = document.getElementById('row-' + selectedIndex);
+          const prevChk = document.getElementById('chk-' + selectedIndex);
+          if (prevRow) prevRow.classList.remove('selected');
+          if (prevChk) prevChk.classList.remove('checked');
+        }
+
+        // Select new
+        selectedIndex = index;
+        document.getElementById('row-' + index).classList.add('selected');
+        document.getElementById('chk-' + index).classList.add('checked');
+        document.getElementById('selectedPageName').innerText = accounts[index].name;
+        document.getElementById('actionBar').classList.add('visible');
+      }
+    }
+
+    function filterPages(query) {
+      const q = (query || '').toLowerCase().trim();
+      let visible = 0;
+      accounts.forEach((acc, idx) => {
+        const row = document.getElementById('row-' + idx);
+        if (!row) return;
+        const matches = !q || acc.name.toLowerCase().includes(q);
+        row.style.display = matches ? 'flex' : 'none';
+        if (matches) visible++;
+      });
+      document.getElementById('visibleCount').innerText = visible;
+    }
+
+    async function finalizeConnection() {
+      if (selectedIndex === null) return;
+      const selected = accounts[selectedIndex];
       if (!selected) return;
 
       const overlay = document.getElementById('overlay');
@@ -619,7 +733,7 @@ function renderAccountSelectionHtml({ platform, accounts, stateToken, rawPagesCo
 
           setTimeout(function() {
             window.close();
-          }, 1400);
+          }, 1200);
         } else {
           alert('Errore durante il salvataggio: ' + (data.error || 'Riprova più tardi'));
           overlay.classList.remove('active');
