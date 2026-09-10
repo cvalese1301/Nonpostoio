@@ -40,8 +40,8 @@ function resolveRedirectUri(req, customRedirectUri = '') {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
     return 'http://localhost:3000/api/oauth/meta/callback';
   }
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-  return `${protocol}://${host}/api/oauth/meta/callback`;
+  // Public domains (like nonpostoio.onrender.com) strictly require HTTPS for Meta OAuth
+  return `https://${host}/api/oauth/meta/callback`;
 }
 
 /**
