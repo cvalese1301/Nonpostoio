@@ -288,7 +288,7 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       return res.status(403).send('Canale non autorizzato o inesistente.');
     }
 
-    const { appId, appSecret, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+    const { appId, appSecret, configId, customRedirectUri } = await metaOAuthService.getMetaCredentials();
     if (!appId || !appSecret) {
       return res.status(400).send(`
         <!DOCTYPE html>
@@ -322,7 +322,8 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       appId,
       redirectUri,
       platform,
-      state
+      state,
+      configId
     });
 
     res.redirect(authUrl);
@@ -1130,6 +1131,9 @@ router.get('/settings', authMiddleware, async (req, res) => {
     }
     if (!settings.oauth_meta_app_secret && process.env.OAUTH_META_APP_SECRET) {
       settings.oauth_meta_app_secret = process.env.OAUTH_META_APP_SECRET.trim();
+    }
+    if (!settings.oauth_meta_config_id && process.env.OAUTH_META_CONFIG_ID) {
+      settings.oauth_meta_config_id = process.env.OAUTH_META_CONFIG_ID.trim();
     }
     res.json(settings);
   } catch (err) {

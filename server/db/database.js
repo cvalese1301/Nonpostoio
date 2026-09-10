@@ -218,6 +218,9 @@ async function seedInitialData() {
   if (process.env.OAUTH_META_APP_SECRET) {
     await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [process.env.OAUTH_META_APP_SECRET.trim()]);
   }
+  if (process.env.OAUTH_META_CONFIG_ID) {
+    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_config_id', ?)", [process.env.OAUTH_META_CONFIG_ID.trim()]);
+  }
   if (process.env.PCLOUD_ACCESS_TOKEN) {
     await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('pcloud_token', ?)", [process.env.PCLOUD_ACCESS_TOKEN.trim()]);
   }

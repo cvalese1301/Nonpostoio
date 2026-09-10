@@ -95,6 +95,7 @@ export default function ChannelsModal({
   const [masterSettings, setMasterSettings] = useState({
     oauth_meta_app_id: '',
     oauth_meta_app_secret: '',
+    oauth_meta_config_id: '',
     oauth_google_client_id: '',
     oauth_google_client_secret: '',
     oauth_linkedin_client_id: '',
@@ -144,6 +145,7 @@ export default function ChannelsModal({
           ...prev,
           oauth_meta_app_id: data.oauth_meta_app_id || '',
           oauth_meta_app_secret: data.oauth_meta_app_secret || '',
+          oauth_meta_config_id: data.oauth_meta_config_id || '',
           oauth_google_client_id: data.oauth_google_client_id || '',
           oauth_google_client_secret: data.oauth_google_client_secret || '',
           oauth_linkedin_client_id: data.oauth_linkedin_client_id || '',
@@ -457,7 +459,8 @@ export default function ChannelsModal({
         {/* Meta */}
         {renderOAuthGroup('Meta (Facebook, Instagram, Threads)', '#1877F2', [
           { key: 'oauth_meta_app_id', label: 'App ID' },
-          { key: 'oauth_meta_app_secret', label: 'App Secret', secret: true }
+          { key: 'oauth_meta_app_secret', label: 'App Secret', secret: true },
+          { key: 'oauth_meta_config_id', label: 'ID Configurazione (Facebook Login for Business)' }
         ])}
         {/* Google */}
         {renderOAuthGroup('Google (YouTube, Business)', '#4285F4', [

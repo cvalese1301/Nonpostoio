@@ -20,11 +20,13 @@ function escapeHtml(str) {
 async function getMetaCredentials() {
   const appIdRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_app_id']);
   const appSecretRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_app_secret']);
+  const configIdRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_config_id']);
   const customRedirectRow = await get('SELECT value FROM settings WHERE key = ?', ['oauth_meta_redirect_uri']);
 
   return {
     appId: appIdRow?.value?.trim() || process.env.OAUTH_META_APP_ID?.trim() || '',
     appSecret: appSecretRow?.value?.trim() || process.env.OAUTH_META_APP_SECRET?.trim() || '',
+    configId: configIdRow?.value?.trim() || process.env.OAUTH_META_CONFIG_ID?.trim() || '',
     customRedirectUri: customRedirectRow?.value?.trim() || process.env.OAUTH_META_REDIRECT_URI?.trim() || ''
   };
 }
@@ -45,10 +47,9 @@ function resolveRedirectUri(req, customRedirectUri = '') {
 }
 
 /**
- * Generate Meta OAuth Dialog URL with full Business Integration scopes (identical to Publer/Publie.io)
+ * Generate Meta OAuth Dialog URL with full Business Integration scopes or Configuration ID
  */
-function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state }) {
-  // Complete set of scopes used by professional platforms like Publie.io & Publer
+function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, configId }) {
   let scopes = [
     'pages_show_list',
     'pages_read_engagement',
@@ -72,7 +73,15 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state }) {
   }
 
   const scopeString = scopes.join(',');
-  return `https://www.facebook.com/v20.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopeString)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest`;
+  let url = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest`;
+
+  if (configId) {
+    url += `&config_id=${encodeURIComponent(configId)}`;
+  } else {
+    url += `&scope=${encodeURIComponent(scopeString)}`;
+  }
+
+  return url;
 }
 
 /**
