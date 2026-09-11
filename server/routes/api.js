@@ -25,6 +25,30 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB max
 
 // -------------------------------------------------------------
+// CRON / HEALTH KEEP-ALIVE & AUTOMATED POST PUBLISHING TICK
+// -------------------------------------------------------------
+router.get('/cron/tick', async (req, res) => {
+  try {
+    const startTime = Date.now();
+    await scheduler.checkAndPublishDuePosts();
+    const durationMs = Date.now() - startTime;
+
+    res.json({
+      success: true,
+      service: 'NonPosto.io',
+      status: 'active',
+      keepAlive: 'ok',
+      timestamp: new Date().toISOString(),
+      durationMs,
+      message: 'Keep-alive ping received and scheduled posts processed.'
+    });
+  } catch (err) {
+    console.error('[Cron Tick Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // AUTHENTICATION (SaaS User Registration, Login & Session)
 // -------------------------------------------------------------
 router.post('/auth/register', async (req, res) => {
