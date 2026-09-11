@@ -24,6 +24,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'NonPosto.io' });
 });
 
+// Direct Privacy Policy for Meta & Threads
+app.get('/privacy', (req, res) => {
+  res.redirect('/api/privacy');
+});
+
 // Serve frontend in production or if client/dist exists
 const clientDistPath = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDistPath));

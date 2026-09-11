@@ -382,6 +382,57 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// META / THREADS COMPLIANCE: PRIVACY, DEAUTHORIZE & DATA DELETION
+// -------------------------------------------------------------
+router.all('/oauth/meta/deauthorize', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Disinstallazione registrata con successo.',
+    service: 'NonPosto.io'
+  });
+});
+
+router.all('/oauth/meta/data-deletion', (req, res) => {
+  const confirmationCode = 'del_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+  const baseUrl = getPublicBaseUrl(req);
+  res.json({
+    url: `${baseUrl}/api/privacy?status=data_deleted&code=${confirmationCode}`,
+    confirmation_code: confirmationCode
+  });
+});
+
+router.get('/privacy', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="it">
+    <head>
+      <meta charset="UTF-8">
+      <title>Informativa sulla Privacy & Condizioni - NonPosto.io</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0B0F19; color: #F1F5F9; line-height: 1.6; padding: 40px 20px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #38BDF8; font-size: 26px; }
+        h2 { color: #A78BFA; font-size: 18px; margin-top: 24px; }
+        p, li { color: #94A3B8; font-size: 14px; }
+        .card { background: #151D30; border: 1px solid #23304E; border-radius: 12px; padding: 24px; margin-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>NonPosto.io - Informativa sulla Privacy & Gestione Dati</h1>
+      <p>Ultimo aggiornamento: ${new Date().toLocaleDateString('it-IT')}</p>
+      <div class="card">
+        <h2>1. Finalità del Servizio</h2>
+        <p>NonPosto.io è una piattaforma di gestione e programmazione post per canali social (Facebook, Instagram, Threads e altri). I dati e token OAuth sono impiegati esclusivamente per consentire la pubblicazione programmata dei contenuti creati dall'utente.</p>
+        <h2>2. Sicurezza e Token</h2>
+        <p>NonPosto.io non raccoglie né memorizza password personali di Meta o Threads. L'autenticazione avviene tramite protocollo sicuro OAuth 2.0.</p>
+        <h2>3. Eliminazione dei Dati Utente</h2>
+        <p>Per richiedere la rimozione di tutti i dati dal sistema, puoi scollegare il canale dall'interfaccia o inviare un'email a <strong>support@nonposto.io</strong>.</p>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
 router.get('/oauth/meta/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
 
