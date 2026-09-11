@@ -207,6 +207,14 @@ async function initDb() {
   }
 
   await seedInitialData();
+
+  // Auto-restore channels, OAuth tokens, and settings from Cloud Vault on fresh container boot
+  try {
+    const cloudSyncService = require('../services/cloudSyncService');
+    await cloudSyncService.autoRestoreIfFresh();
+  } catch (e) {
+    console.warn('[DB] Warning during Cloud Vault auto-restore check:', e.message);
+  }
 }
 
 async function seedInitialData() {
@@ -254,24 +262,34 @@ async function seedInitialData() {
     console.log(`[DB] Workspace predefinito inizializzato: ${defaultWsName}`);
   }
 
-  // Seed settings from environment variables if set in Render Dashboard
-  if (process.env.OAUTH_META_APP_ID) {
-    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_id', ?)", [process.env.OAUTH_META_APP_ID.trim()]);
-  }
-  if (process.env.OAUTH_META_APP_SECRET) {
-    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [process.env.OAUTH_META_APP_SECRET.trim()]);
-  }
-  if (process.env.OAUTH_META_CONFIG_ID) {
-    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_config_id', ?)", [process.env.OAUTH_META_CONFIG_ID.trim()]);
-  }
-  if (process.env.OAUTH_THREADS_APP_ID) {
-    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_threads_app_id', ?)", [process.env.OAUTH_THREADS_APP_ID.trim()]);
-  }
-  if (process.env.OAUTH_THREADS_APP_SECRET) {
-    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_threads_app_secret', ?)", [process.env.OAUTH_THREADS_APP_SECRET.trim()]);
-  }
-  if (process.env.PCLOUD_ACCESS_TOKEN) {
-    await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('pcloud_token', ?)", [process.env.PCLOUD_ACCESS_TOKEN.trim()]);
+  // Seed all settings from Environment Variables if configured in Render Dashboard
+  const envVarMap = [
+    ['OAUTH_META_APP_ID', 'oauth_meta_app_id'],
+    ['OAUTH_META_APP_SECRET', 'oauth_meta_app_secret'],
+    ['OAUTH_META_CONFIG_ID', 'oauth_meta_config_id'],
+    ['OAUTH_META_REDIRECT_URI', 'oauth_meta_redirect_uri'],
+    ['OAUTH_THREADS_APP_ID', 'oauth_threads_app_id'],
+    ['OAUTH_THREADS_APP_SECRET', 'oauth_threads_app_secret'],
+    ['CLOUDINARY_CLOUD_NAME', 'cloudinary_cloud_name'],
+    ['CLOUDINARY_API_KEY', 'cloudinary_api_key'],
+    ['CLOUDINARY_API_SECRET', 'cloudinary_api_secret'],
+    ['PCLOUD_ACCESS_TOKEN', 'pcloud_token'],
+    ['PCLOUD_REGION', 'pcloud_region'],
+    ['AI_API_KEY', 'ai_api_key'],
+    ['OAUTH_GOOGLE_CLIENT_ID', 'oauth_google_client_id'],
+    ['OAUTH_GOOGLE_CLIENT_SECRET', 'oauth_google_client_secret'],
+    ['OAUTH_LINKEDIN_CLIENT_ID', 'oauth_linkedin_client_id'],
+    ['OAUTH_LINKEDIN_CLIENT_SECRET', 'oauth_linkedin_client_secret'],
+    ['OAUTH_TIKTOK_CLIENT_KEY', 'oauth_tiktok_client_key'],
+    ['OAUTH_TIKTOK_CLIENT_SECRET', 'oauth_tiktok_client_secret'],
+    ['OAUTH_X_CLIENT_ID', 'oauth_x_client_id'],
+    ['OAUTH_X_CLIENT_SECRET', 'oauth_x_client_secret']
+  ];
+
+  for (const [envKey, dbKey] of envVarMap) {
+    if (process.env[envKey] && process.env[envKey].trim() !== '') {
+      await run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [dbKey, process.env[envKey].trim()]);
+    }
   }
 }
 

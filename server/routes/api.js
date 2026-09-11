@@ -13,6 +13,7 @@ const metaOAuthService = require('../services/metaOAuthService');
 const logger = require('../services/logger');
 const socialPublishService = require('../services/socialPublishService');
 const { getPublicBaseUrl, toAbsoluteMediaUrl } = require('../services/publicUrlHelper');
+const cloudSyncService = require('../services/cloudSyncService');
 
 // Middleware: require admin role
 function adminOnly(req, res, next) {
@@ -259,6 +260,12 @@ router.post('/channels/:id/connect', authMiddleware, async (req, res) => {
     );
 
     const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+
+    // Auto-sync channel and credentials to Cloud Vault
+    cloudSyncService.backupToCloud(`channel_connected_${updated?.platform || 'api'}`).catch(err => {
+      console.warn('[CloudSync] Background sync warning:', err.message);
+    });
+
     res.json({ success: true, message: `Canale ${updated.platform} collegato con successo tramite API`, channel: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -633,6 +640,11 @@ router.post('/oauth/meta/finalize', async (req, res) => {
 
     const updated = await get('SELECT * FROM channels WHERE id = ?', [targetChannelId]);
 
+    // Auto-sync channel and OAuth token to Cloud Vault
+    cloudSyncService.backupToCloud(`channel_connected_${updated?.platform || 'oauth'}`).catch(err => {
+      console.warn('[CloudSync] Background sync warning:', err.message);
+    });
+
     res.json({
       success: true,
       message: `Account ${updated.platform} collegato con successo!`,
@@ -678,6 +690,12 @@ router.post('/channels/:id/action', authMiddleware, async (req, res) => {
     }
 
     const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+
+    // Auto-sync change to Cloud Vault
+    cloudSyncService.backupToCloud(`channel_action_${action}`).catch(err => {
+      console.warn('[CloudSync] Background sync warning:', err.message);
+    });
+
     res.json({ success: true, channel: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -745,6 +763,12 @@ router.post('/channels/:id/oauth-login', authMiddleware, async (req, res) => {
     );
 
     const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+
+    // Auto-sync channel and credentials to Cloud Vault
+    cloudSyncService.backupToCloud(`channel_oauth_${updated?.platform || 'oauth'}`).catch(err => {
+      console.warn('[CloudSync] Background sync warning:', err.message);
+    });
+
     res.json({
       success: true,
       message: `Account ${updated.platform} collegato con successo!`,
@@ -1388,7 +1412,7 @@ router.post('/mcp/call', async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// SETTINGS & BACKUP
+// SETTINGS & CLOUD SYNC VAULT
 // -------------------------------------------------------------
 router.get('/settings', authMiddleware, async (req, res) => {
   try {
@@ -1396,15 +1420,38 @@ router.get('/settings', authMiddleware, async (req, res) => {
     const settings = {};
     rows.forEach(r => { settings[r.key] = r.value; });
 
-    if (!settings.oauth_meta_app_id && process.env.OAUTH_META_APP_ID) {
-      settings.oauth_meta_app_id = process.env.OAUTH_META_APP_ID.trim();
+    const envMap = {
+      oauth_meta_app_id: process.env.OAUTH_META_APP_ID,
+      oauth_meta_app_secret: process.env.OAUTH_META_APP_SECRET,
+      oauth_meta_config_id: process.env.OAUTH_META_CONFIG_ID,
+      oauth_meta_redirect_uri: process.env.OAUTH_META_REDIRECT_URI,
+      oauth_threads_app_id: process.env.OAUTH_THREADS_APP_ID,
+      oauth_threads_app_secret: process.env.OAUTH_THREADS_APP_SECRET,
+      cloudinary_cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      cloudinary_api_key: process.env.CLOUDINARY_API_KEY,
+      cloudinary_api_secret: process.env.CLOUDINARY_API_SECRET,
+      pcloud_token: process.env.PCLOUD_ACCESS_TOKEN,
+      pcloud_region: process.env.PCLOUD_REGION,
+      ai_api_key: process.env.AI_API_KEY,
+      oauth_google_client_id: process.env.OAUTH_GOOGLE_CLIENT_ID,
+      oauth_google_client_secret: process.env.OAUTH_GOOGLE_CLIENT_SECRET,
+      oauth_linkedin_client_id: process.env.OAUTH_LINKEDIN_CLIENT_ID,
+      oauth_linkedin_client_secret: process.env.OAUTH_LINKEDIN_CLIENT_SECRET,
+      oauth_tiktok_client_key: process.env.OAUTH_TIKTOK_CLIENT_KEY,
+      oauth_tiktok_client_secret: process.env.OAUTH_TIKTOK_CLIENT_SECRET,
+      oauth_x_client_id: process.env.OAUTH_X_CLIENT_ID,
+      oauth_x_client_secret: process.env.OAUTH_X_CLIENT_SECRET
+    };
+
+    const envLocks = {};
+    for (const [key, val] of Object.entries(envMap)) {
+      if (val && val.trim() !== '') {
+        settings[key] = val.trim();
+        envLocks[key] = true;
+      }
     }
-    if (!settings.oauth_meta_app_secret && process.env.OAUTH_META_APP_SECRET) {
-      settings.oauth_meta_app_secret = process.env.OAUTH_META_APP_SECRET.trim();
-    }
-    if (!settings.oauth_meta_config_id && process.env.OAUTH_META_CONFIG_ID) {
-      settings.oauth_meta_config_id = process.env.OAUTH_META_CONFIG_ID.trim();
-    }
+    settings._envLocks = envLocks;
+
     res.json(settings);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1414,7 +1461,7 @@ router.get('/settings', authMiddleware, async (req, res) => {
 router.post('/settings', authMiddleware, async (req, res) => {
   try {
     for (const [key, val] of Object.entries(req.body)) {
-      if (val !== undefined && val !== null) {
+      if (val !== undefined && val !== null && key !== '_envLocks') {
         const cleanVal = typeof val === 'object' ? JSON.stringify(val) : String(val).trim();
         await run(
           "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
@@ -1422,10 +1469,86 @@ router.post('/settings', authMiddleware, async (req, res) => {
         );
       }
     }
+
+    // Auto-sync updated settings to Cloud Vault
+    cloudSyncService.backupToCloud('settings_saved').catch(err => {
+      console.warn('[CloudSync] Background sync warning:', err.message);
+    });
+
     res.json({ success: true, message: 'Impostazioni aggiornate con successo' });
   } catch (err) {
     console.error('[Settings] Error saving settings:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Cloud Sync Vault Status
+router.get('/cloud-sync/status', authMiddleware, async (req, res) => {
+  try {
+    const status = await cloudSyncService.getSyncStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger Manual Cloud Sync Backup
+router.post('/cloud-sync/backup', authMiddleware, async (req, res) => {
+  try {
+    const result = await cloudSyncService.backupToCloud('manual_user_trigger');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger Manual Cloud Sync Restore
+router.post('/cloud-sync/restore', authMiddleware, async (req, res) => {
+  try {
+    const result = await cloudSyncService.restoreFromCloud();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Export Instant JSON Backup File (Direct Download to PC)
+router.get('/cloud-sync/export-json', authMiddleware, async (req, res) => {
+  try {
+    const payload = await cloudSyncService.exportBackupPayload(req.user.id);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="nonposto_backup_${dateStr}.json"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Import & Restore JSON Backup File
+router.post('/cloud-sync/import-json', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    let payload = null;
+    if (req.file && req.file.buffer) {
+      payload = JSON.parse(req.file.buffer.toString('utf8'));
+    } else if (req.body && req.body.backupData) {
+      payload = typeof req.body.backupData === 'string' ? JSON.parse(req.body.backupData) : req.body.backupData;
+    } else if (req.body && (req.body.channels || req.body.settings)) {
+      payload = req.body;
+    }
+
+    if (!payload) {
+      return res.status(400).json({ error: 'Nessun file o payload JSON di backup valido fornito' });
+    }
+
+    const result = await cloudSyncService.applyBackupData(payload);
+    // Also trigger cloud backup so the new imported data is synced immediately
+    cloudSyncService.backupToCloud('imported_backup').catch(console.warn);
+
+    res.json(result);
+  } catch (err) {
+    console.error('[CloudSync] Import error:', err.message);
+    res.status(500).json({ error: 'Errore durante il ripristino del backup: ' + err.message });
   }
 });
 
@@ -1461,6 +1584,9 @@ router.post('/settings/backup', authMiddleware, async (req, res) => {
     };
 
     const backupResult = await pcloudStorage.backupDatabaseToCloud(backupData);
+    // Also backup to Cloudinary
+    await cloudSyncService.backupToCloud('pcloud_backup_hook');
+
     res.json({ success: true, backup: backupResult });
   } catch (err) {
     res.status(500).json({ error: err.message });

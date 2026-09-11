@@ -487,6 +487,7 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         pcloudStatus={pcloudStatus}
         onRefreshPcloudStatus={checkPcloudStatus}
+        onRefreshChannels={() => activeWorkspace && fetchChannels(activeWorkspace.id)}
       />
 
       {/* New Client Workspace Modal */}

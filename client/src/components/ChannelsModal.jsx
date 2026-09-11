@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, Share2, Check, RefreshCw, Link2, CheckCircle2, LogOut, 
-  Wifi, AlertTriangle, Settings, Eye, EyeOff, Activity, Plus, ArrowLeft, Sliders
+  Wifi, AlertTriangle, Settings, Eye, EyeOff, Activity, Plus, ArrowLeft, Sliders,
+  ShieldCheck, Copy
 } from 'lucide-react';
 import LogsModal from './LogsModal';
 
@@ -757,9 +758,44 @@ export default function ChannelsModal({
         </button>
       </div>
 
+      <div style={{
+        background: 'rgba(16, 185, 129, 0.08)',
+        border: '1px solid rgba(16, 185, 129, 0.3)',
+        borderRadius: 8,
+        padding: '10px 14px',
+        fontSize: '0.8rem',
+        color: '#E2E8F0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 10
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ShieldCheck size={18} color="#10B981" />
+          <span><strong>Protezione Anti-Reset Render:</strong> I token OAuth e le pagine collegate vengono salvati in modo permanente nel Cloud Vault di Cloudinary.</span>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ fontSize: '0.74rem', padding: '4px 10px', background: 'rgba(139, 92, 246, 0.15)', color: '#A78BFA', borderColor: 'rgba(139, 92, 246, 0.3)' }}
+          onClick={() => {
+            const lines = [
+              `OAUTH_META_APP_ID=${masterSettings.oauth_meta_app_id || ''}`,
+              `OAUTH_META_APP_SECRET=${masterSettings.oauth_meta_app_secret || ''}`,
+              `OAUTH_THREADS_APP_ID=${masterSettings.oauth_threads_app_id || masterSettings.oauth_meta_app_id || ''}`,
+              `OAUTH_THREADS_APP_SECRET=${masterSettings.oauth_threads_app_secret || masterSettings.oauth_meta_app_secret || ''}`
+            ].join('\n');
+            navigator.clipboard.writeText(lines).then(() => alert('Variabili OAuth copiate negli appunti!\n\nPuoi incollarle nella sezione "Environment" di Render.com per renderle permanenti.'));
+          }}
+        >
+          <Copy size={12} /> Copia per Render
+        </button>
+      </div>
+
       {masterSaveSuccess && (
         <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10B981', color: '#34D399', padding: '8px 14px', borderRadius: 8, fontSize: '0.8rem' }}>
-          ✓ Credenziali salvate con successo!
+          ✓ Credenziali salvate con successo e sincronizzate con il Cloud Vault!
         </div>
       )}
 

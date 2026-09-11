@@ -17,6 +17,14 @@ class SchedulerService {
       await this.checkAndPublishDuePosts();
     });
 
+    // Periodic Cloud Vault backup every 30 minutes
+    cron.schedule('*/30 * * * *', async () => {
+      try {
+        const cloudSyncService = require('./cloudSyncService');
+        await cloudSyncService.backupToCloud('periodic_cron_30m');
+      } catch (e) {}
+    });
+
     // Also run an immediate check on startup
     setTimeout(() => {
       this.checkAndPublishDuePosts();
