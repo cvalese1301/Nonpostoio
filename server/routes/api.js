@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { all, run, get, ADMIN_EMAIL } = require('../db/database');
 const pcloudStorage = require('../services/pcloudStorage');
+const cloudinaryStorage = require('../services/cloudinaryStorage');
 const aiOptimizer = require('../services/aiOptimizer');
 const scheduler = require('../services/scheduler');
 const authService = require('../services/authService');
@@ -1247,15 +1248,37 @@ router.post('/media/upload', authMiddleware, upload.single('file'), async (req, 
     if (!ws) return res.status(403).json({ error: 'Accesso negato al workspace' });
     const workspaceName = ws.name;
 
-    // Upload via pCloud Service (with local zero-cost fallback)
-    const uploadResult = await pcloudStorage.uploadFile({
-      workspaceName,
-      fileBuffer: req.file.buffer,
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype
-    });
+    // Check if Cloudinary is configured
+    const cCreds = await cloudinaryStorage.getCredentials();
+    let uploadResult;
+    let storageProvider = 'local';
 
-    // Resolve full public URL on the tool domain (for Instagram & Meta API compatibility)
+    if (cCreds.isConfigured) {
+      try {
+        uploadResult = await cloudinaryStorage.uploadFile({
+          workspaceName,
+          fileBuffer: req.file.buffer,
+          fileName: req.file.originalname,
+          mimeType: req.file.mimetype
+        });
+        storageProvider = 'cloudinary';
+      } catch (cErr) {
+        console.warn('[Storage] Cloudinary upload failed, trying pCloud/local fallback:', cErr.message);
+      }
+    }
+
+    if (!uploadResult) {
+      // Upload via pCloud Service (with local zero-cost fallback)
+      uploadResult = await pcloudStorage.uploadFile({
+        workspaceName,
+        fileBuffer: req.file.buffer,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype
+      });
+      storageProvider = uploadResult.storageType || 'local';
+    }
+
+    // Resolve full public URL (for Instagram & Meta API compatibility)
     const baseUrl = await getPublicBaseUrl(req);
     const publicUrl = toAbsoluteMediaUrl(uploadResult.url, baseUrl);
 
@@ -1280,7 +1303,7 @@ router.post('/media/upload', authMiddleware, upload.single('file'), async (req, 
       url: publicUrl,
       public_url: publicUrl,
       domain: baseUrl,
-      storageType: uploadResult.storageType 
+      storageType: storageProvider 
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1289,8 +1312,13 @@ router.post('/media/upload', authMiddleware, upload.single('file'), async (req, 
 
 router.get('/storage/status', authMiddleware, async (req, res) => {
   try {
+    const cCreds = await cloudinaryStorage.getCredentials();
+    if (cCreds.isConfigured) {
+      const cStatus = await cloudinaryStorage.testConnection();
+      return res.json({ ...cStatus, provider: 'cloudinary' });
+    }
     const status = await pcloudStorage.testConnection();
-    res.json(status);
+    res.json({ ...status, provider: 'pcloud' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

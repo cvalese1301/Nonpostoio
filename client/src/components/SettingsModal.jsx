@@ -14,6 +14,9 @@ export default function SettingsModal({
 
   const [pcloudToken, setPcloudToken] = useState('');
   const [pcloudRegion, setPcloudRegion] = useState('eu');
+  const [cloudinaryCloudName, setCloudinaryCloudName] = useState('');
+  const [cloudinaryApiKey, setCloudinaryApiKey] = useState('');
+  const [cloudinaryApiSecret, setCloudinaryApiSecret] = useState('');
   const [aiKey, setAiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -25,6 +28,9 @@ export default function SettingsModal({
       .then(data => {
         if (data.pcloud_token) setPcloudToken(data.pcloud_token);
         if (data.pcloud_region) setPcloudRegion(data.pcloud_region);
+        if (data.cloudinary_cloud_name) setCloudinaryCloudName(data.cloudinary_cloud_name);
+        if (data.cloudinary_api_key) setCloudinaryApiKey(data.cloudinary_api_key);
+        if (data.cloudinary_api_secret) setCloudinaryApiSecret(data.cloudinary_api_secret);
         if (data.ai_api_key) setAiKey(data.ai_api_key);
       })
       .catch(console.error);
@@ -40,6 +46,9 @@ export default function SettingsModal({
         body: JSON.stringify({
           pcloud_token: pcloudToken,
           pcloud_region: pcloudRegion,
+          cloudinary_cloud_name: cloudinaryCloudName,
+          cloudinary_api_key: cloudinaryApiKey,
+          cloudinary_api_secret: cloudinaryApiSecret,
           ai_api_key: aiKey
         })
       });
@@ -84,7 +93,66 @@ export default function SettingsModal({
 
         {/* Content */}
         <form onSubmit={handleSave} className="modal-content-scroll">
-          {/* Section 1: pCloud Storage */}
+          {/* Section 1: Cloudinary Storage (Consigliato) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Cloud size={20} color="#38BDF8" />
+                <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Archiviazione Cloudinary (25GB Gratis - Consigliata)</h3>
+              </div>
+              <span style={{ fontSize: '0.68rem', fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '2px 8px', borderRadius: 4 }}>
+                RACCOMANDATA
+              </span>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#94A3B8' }}>
+              Cloudinary fornisce 25GB gratuiti permanenti con CDN ultra-veloce compatibile al 100% con Meta (Instagram Reels, Caroselli e Foto).
+            </p>
+
+            <div style={{ fontSize: '0.74rem', color: '#94A3B8', lineHeight: 1.5, background: 'rgba(56, 189, 248, 0.08)', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+              <strong style={{ color: '#E2E8F0' }}>Dove trovare le tue 3 credenziali nella Dashboard Cloudinary:</strong><br />
+              1. Accedi alla console: <a href="https://console.cloudinary.com/pm" target="_blank" rel="noreferrer" style={{ color: '#38BDF8', textDecoration: 'underline', fontWeight: 600 }}>console.cloudinary.com</a><br />
+              2. Nella schermata principale troverai il riquadro <strong>"Product Environment Credentials"</strong> (o "API Keys").<br />
+              3. Copia e incolla qui sotto <strong>Cloud name</strong>, <strong>API Key</strong> e <strong>API Secret</strong>!
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div className="form-group">
+                <label>Cloud Name:</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Es. dxyz123ab"
+                  value={cloudinaryCloudName}
+                  onChange={(e) => setCloudinaryCloudName(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>API Key:</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Es. 123456789012345"
+                  value={cloudinaryApiKey}
+                  onChange={(e) => setCloudinaryApiKey(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>API Secret:</label>
+              <input
+                type="password"
+                className="input-field"
+                placeholder="Incolla qui l'API Secret di Cloudinary"
+                value={cloudinaryApiSecret}
+                onChange={(e) => setCloudinaryApiSecret(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)' }} />
+
+          {/* Section 2: pCloud Storage */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Cloud size={20} color="#10B981" />
