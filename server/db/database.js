@@ -162,6 +162,10 @@ async function initDb() {
     await run(`ALTER TABLE post_customizations ADD COLUMN publish_error TEXT`);
   } catch (e) {}
 
+  try {
+    await run(`ALTER TABLE post_customizations ADD COLUMN social_post_id TEXT`);
+  } catch (e) {}
+
   await run(`
     CREATE TABLE IF NOT EXISTS media_assets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

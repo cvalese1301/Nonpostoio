@@ -1161,19 +1161,42 @@ router.post('/posts/:id/duplicate', authMiddleware, async (req, res) => {
   }
 });
 
-// Delete post
+// Delete post (with automatic removal from social channels where supported)
 router.delete('/posts/:id', authMiddleware, async (req, res) => {
   try {
     const postId = req.params.id;
+
+    // Verify post exists and belongs to user's workspace
+    const post = await get('SELECT * FROM posts WHERE id = ?', [postId]);
+    if (!post) {
+      return res.status(404).json({ error: 'Post non trovato' });
+    }
+
+    const ws = await get('SELECT * FROM workspaces WHERE id = ? AND user_id = ?', [post.workspace_id, req.user.id]);
+    if (!ws && req.user.is_admin !== 1) {
+      return res.status(403).json({ error: 'Non autorizzato a eliminare questo post' });
+    }
+
+    // Attempt deletion from published social channels (Facebook, Instagram, Threads, etc.)
+    const socialDeleteResults = await socialPublishService.deletePostFromSocials({
+      postId,
+      workspaceId: post.workspace_id
+    });
+
     await run('DELETE FROM post_customizations WHERE post_id = ?', [postId]);
     await run('DELETE FROM posts WHERE id = ?', [postId]);
-    res.json({ success: true, message: 'Post eliminato con successo' });
+
+    res.json({ 
+      success: true, 
+      message: 'Post eliminato con successo sia localmente che dai canali social collegati',
+      social_results: socialDeleteResults 
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Bulk delete posts (Drafts & Scheduled only)
+// Bulk delete posts (with automatic removal from social channels where supported)
 router.post('/posts/bulk-delete', authMiddleware, async (req, res) => {
   try {
     const { ids } = req.body;
@@ -1181,19 +1204,25 @@ router.post('/posts/bulk-delete', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Nessun post selezionato per l\'eliminazione' });
     }
 
-    // Verify posts belong to workspaces owned by req.user and status is draft or scheduled
     const placeholders = ids.map(() => '?').join(',');
     const allowedPosts = await all(
-      `SELECT p.id, p.status, p.title 
+      `SELECT p.id, p.workspace_id, p.status, p.title 
        FROM posts p 
        JOIN workspaces w ON p.workspace_id = w.id 
-       WHERE p.id IN (${placeholders}) AND w.user_id = ? AND p.status IN ('draft', 'scheduled')`,
-      [...ids, req.user.id]
+       WHERE p.id IN (${placeholders}) AND (w.user_id = ? OR ? = 1)`,
+      [...ids, req.user.id, req.user.is_admin || 0]
     );
 
     if (allowedPosts.length === 0) {
       return res.status(400).json({ 
-        error: 'Nessun post in bozza o programmato trovato per l\'eliminazione. I post già pubblicati non possono essere eliminati in blocco.' 
+        error: 'Nessun post trovato per l\'eliminazione.' 
+      });
+    }
+
+    for (const post of allowedPosts) {
+      await socialPublishService.deletePostFromSocials({
+        postId: post.id,
+        workspaceId: post.workspace_id
       });
     }
 

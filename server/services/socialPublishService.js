@@ -60,6 +60,7 @@ class SocialPublishService {
 
         const accessToken = config.access_token;
         const accountId = config.account_id;
+        let socialPostId = null;
 
         // ---------- FACEBOOK PAGE PUBLISHING ----------
         if (platform === 'facebook' && accessToken && accountId) {
@@ -125,6 +126,7 @@ class SocialPublishService {
           }
 
           if (fbPostId) {
+            socialPostId = String(fbPostId);
             const postKey = String(fbPostId).includes('_') ? String(fbPostId).split('_')[1] : fbPostId;
             publishedUrl = `https://www.facebook.com/${accountId}/posts/${postKey}`;
             isLive = true;
@@ -180,6 +182,7 @@ class SocialPublishService {
 
           const threadsPostId = pubRes.data.id;
           if (threadsPostId) {
+            socialPostId = String(threadsPostId);
             const cleanHandle = (channel.handle || '').replace('@', '');
             publishedUrl = cleanHandle 
               ? `https://www.threads.net/@${cleanHandle}/post/${threadsPostId}`
@@ -229,6 +232,7 @@ class SocialPublishService {
 
           const igMediaId = pubRes.data.id;
           if (igMediaId) {
+            socialPostId = String(igMediaId);
             publishedUrl = `https://www.instagram.com/p/${igMediaId}/`;
             isLive = true;
             await logger.info('publish', `Post pubblicato con successo su Instagram! ID: ${igMediaId}`, { postId, igMediaId, publishedUrl });
@@ -259,15 +263,15 @@ class SocialPublishService {
       try {
         await run(
           `UPDATE post_customizations 
-           SET published_url = ?, publish_status = ?, publish_error = ? 
+           SET published_url = ?, publish_status = ?, publish_error = ?, social_post_id = COALESCE(?, social_post_id) 
            WHERE post_id = ? AND platform = ?`,
-          [publishedUrl, publishStatus, publishError, postId, platform]
+          [publishedUrl, publishStatus, publishError, socialPostId, postId, platform]
         );
       } catch (dbErr) {
         try {
           await run(
-            `UPDATE post_customizations SET published_url = ? WHERE post_id = ? AND platform = ?`,
-            [publishedUrl, postId, platform]
+            `UPDATE post_customizations SET published_url = ?, publish_status = ? WHERE post_id = ? AND platform = ?`,
+            [publishedUrl, publishStatus, postId, platform]
           );
         } catch (e) {}
       }
@@ -279,6 +283,131 @@ class SocialPublishService {
         url: publishedUrl,
         error: publishError
       };
+    }
+
+    return results;
+  }
+
+  /**
+   * Deletes a published post from external social channels where supported by the API
+   */
+  async deletePostFromSocials({ postId, workspaceId }) {
+    const results = {};
+
+    try {
+      const customizations = await all(
+        'SELECT * FROM post_customizations WHERE post_id = ?',
+        [postId]
+      );
+
+      if (!customizations || customizations.length === 0) return results;
+
+      const channels = await all('SELECT * FROM channels WHERE workspace_id = ?', [workspaceId]);
+      const channelMap = {};
+      channels.forEach(ch => { channelMap[ch.platform] = ch; });
+
+      for (const cust of customizations) {
+        const platform = cust.platform;
+        const channel = channelMap[platform];
+        if (!channel || channel.active !== 1) continue;
+
+        let config = {};
+        try { config = JSON.parse(channel.config_json || '{}'); } catch (e) { config = {}; }
+        const accessToken = config.access_token;
+        const accountId = config.account_id;
+
+        if (!accessToken) continue;
+
+        let socialPostId = cust.social_post_id;
+
+        // ---------- FACEBOOK PAGE POST DELETION ----------
+        if (platform === 'facebook') {
+          if (!socialPostId && cust.published_url) {
+            const match = cust.published_url.match(/\/posts\/([a-zA-Z0-9_-]+)/);
+            if (match) socialPostId = match[1];
+          }
+
+          if (socialPostId) {
+            try {
+              let targetId = socialPostId;
+              if (accountId && !targetId.includes('_')) {
+                targetId = `${accountId}_${socialPostId}`;
+              }
+
+              let delRes;
+              try {
+                delRes = await axios.delete(`https://graph.facebook.com/v20.0/${targetId}`, {
+                  params: { access_token: accessToken }
+                });
+              } catch (firstErr) {
+                // If compound ID failed, try raw ID
+                delRes = await axios.delete(`https://graph.facebook.com/v20.0/${socialPostId}`, {
+                  params: { access_token: accessToken }
+                });
+              }
+
+              if (delRes.data?.success) {
+                results.facebook = { success: true, message: 'Post eliminato con successo dalla Pagina Facebook' };
+                await logger.info('delete', `Post #${socialPostId} eliminato con successo dalla Pagina Facebook "${channel.account_name}"`, { postId, socialPostId });
+              }
+            } catch (fbDelErr) {
+              const errMsg = fbDelErr.response?.data?.error?.message || fbDelErr.message;
+              results.facebook = { success: false, error: errMsg };
+              console.warn(`[Facebook Delete Error] Post #${socialPostId}:`, errMsg);
+              await logger.warn('delete', `Impossibile eliminare post da Facebook: ${errMsg}`, { postId, socialPostId, error: errMsg });
+            }
+          }
+        }
+
+        // ---------- INSTAGRAM PROFESSIONAL DELETION ----------
+        else if (platform === 'instagram') {
+          if (!socialPostId && cust.published_url) {
+            const match = cust.published_url.match(/\/p\/([a-zA-Z0-9_-]+)/);
+            if (match) socialPostId = match[1];
+          }
+
+          if (socialPostId) {
+            try {
+              const igDelRes = await axios.delete(`https://graph.facebook.com/v20.0/${socialPostId}`, {
+                params: { access_token: accessToken }
+              });
+              if (igDelRes.data?.success) {
+                results.instagram = { success: true, message: 'Post eliminato con successo da Instagram' };
+                await logger.info('delete', `Media Instagram #${socialPostId} eliminato con successo`, { postId, socialPostId });
+              }
+            } catch (igDelErr) {
+              const errMsg = igDelErr.response?.data?.error?.message || igDelErr.message;
+              results.instagram = { success: false, error: errMsg };
+              console.warn(`[Instagram Delete Error] Post #${socialPostId}:`, errMsg);
+            }
+          }
+        }
+
+        // ---------- THREADS DELETION ----------
+        else if (platform === 'threads') {
+          if (!socialPostId && cust.published_url) {
+            const match = cust.published_url.match(/\/post\/([a-zA-Z0-9_-]+)/);
+            if (match) socialPostId = match[1];
+          }
+
+          if (socialPostId) {
+            try {
+              const threadsDelRes = await axios.delete(`https://graph.threads.net/v1.0/${socialPostId}`, {
+                params: { access_token: accessToken }
+              });
+              if (threadsDelRes.data?.success) {
+                results.threads = { success: true, message: 'Post eliminato con successo da Threads' };
+                await logger.info('delete', `Post Threads #${socialPostId} eliminato con successo`, { postId, socialPostId });
+              }
+            } catch (thDelErr) {
+              const errMsg = thDelErr.response?.data?.error?.message || thDelErr.message;
+              results.threads = { success: false, error: errMsg };
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Social Delete Error]', err.message);
     }
 
     return results;

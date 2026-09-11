@@ -196,20 +196,26 @@ export default function App() {
     }
   };
 
-  // Delete Post
+  // Delete Post (including social channels where supported)
   const handleDeletePost = async (postId) => {
-    if (!confirm('Sei sicuro di voler eliminare questo post?')) return;
+    if (!confirm('Sei sicuro di voler eliminare questo post? Se è già stato pubblicato, verrà rimosso automaticamente anche dai canali social collegati (Facebook, Threads, Instagram).')) return;
     try {
-      await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
-      setPosts(prev => prev.filter(p => p.id !== postId));
+      const res = await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setPosts(prev => prev.filter(p => p.id !== postId));
+      } else {
+        alert(data.error || 'Errore durante l\'eliminazione del post.');
+      }
     } catch (err) {
       console.error('Delete failed:', err);
     }
   };
 
-  // Bulk Delete Posts (Drafts & Scheduled only)
+  // Bulk Delete Posts
   const handleBulkDeletePosts = async (postIds) => {
     if (!postIds || postIds.length === 0) return;
+    if (!confirm(`Sei sicuro di voler eliminare ${postIds.length} post selezionati? Verranno rimossi anche dai canali social collegati ove supportato.`)) return;
     try {
       const res = await fetch('/api/posts/bulk-delete', {
         method: 'POST',
