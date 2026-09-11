@@ -11,6 +11,7 @@ const { buildPublishedLinks, generatePlatformPostUrl } = require('../services/po
 const metaOAuthService = require('../services/metaOAuthService');
 const logger = require('../services/logger');
 const socialPublishService = require('../services/socialPublishService');
+const { getPublicBaseUrl, toAbsoluteMediaUrl } = require('../services/publicUrlHelper');
 
 // Middleware: require admin role
 function adminOnly(req, res, next) {
@@ -1230,6 +1231,10 @@ router.post('/media/upload', authMiddleware, upload.single('file'), async (req, 
       mimeType: req.file.mimetype
     });
 
+    // Resolve full public URL on the tool domain (for Instagram & Meta API compatibility)
+    const baseUrl = await getPublicBaseUrl(req);
+    const publicUrl = toAbsoluteMediaUrl(uploadResult.url, baseUrl);
+
     const dbResult = await run(
       `INSERT INTO media_assets (workspace_id, filename, file_size, mime_type, pcloud_fileid, pcloud_url, local_path, tags)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1239,14 +1244,20 @@ router.post('/media/upload', authMiddleware, upload.single('file'), async (req, 
         req.file.size,
         req.file.mimetype,
         uploadResult.fileId?.toString() || '',
-        uploadResult.url,
+        publicUrl,
         uploadResult.localPath || '',
         tags
       ]
     );
 
     const asset = await get('SELECT * FROM media_assets WHERE id = ?', [dbResult.id]);
-    res.json({ ...asset, storageType: uploadResult.storageType });
+    res.json({ 
+      ...asset, 
+      url: publicUrl,
+      public_url: publicUrl,
+      domain: baseUrl,
+      storageType: uploadResult.storageType 
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -5,6 +5,7 @@ const FormData = require('form-data');
 const { run, all, get } = require('../db/database');
 const logger = require('./logger');
 const { generatePlatformPostUrl } = require('./postLinksHelper');
+const { getPublicBaseUrl, toAbsoluteMediaUrl } = require('./publicUrlHelper');
 
 class SocialPublishService {
   /**
@@ -12,6 +13,7 @@ class SocialPublishService {
    */
   async publishPostToSocials({ postId, workspaceId, title, baseContent, customizations = {} }) {
     const results = {};
+    const baseUrl = await getPublicBaseUrl();
 
     // 1. Fetch channels for this workspace
     const channels = await all('SELECT * FROM channels WHERE workspace_id = ?', [workspaceId]);
@@ -26,7 +28,8 @@ class SocialPublishService {
       const textToPublish = (custData.custom_content || baseContent || '').trim();
       const hashtags = (custData.hashtags || '').trim();
       const fullMessage = hashtags ? `${textToPublish}\n\n${hashtags}` : textToPublish;
-      const mediaUrls = custData.media_urls || [];
+      const rawMediaUrls = custData.media_urls || [];
+      const mediaUrls = rawMediaUrls.map(u => toAbsoluteMediaUrl(u, baseUrl)).filter(Boolean);
       const firstComment = (custData.first_comment || '').trim();
 
       let publishedUrl = null;
@@ -66,19 +69,29 @@ class SocialPublishService {
 
           if (mediaUrls.length > 0) {
             const firstMedia = mediaUrls[0];
+            let photoUploaded = false;
+
             if (firstMedia.startsWith('http://') || firstMedia.startsWith('https://')) {
-              // Photo post via remote URL
-              const photoRes = await axios.post(`https://graph.facebook.com/v20.0/${accountId}/photos`, null, {
-                params: {
-                  url: firstMedia,
-                  caption: fullMessage,
-                  access_token: accessToken
-                }
-              });
-              fbPostId = photoRes.data.post_id || photoRes.data.id;
-            } else {
+              try {
+                // Photo post via remote URL
+                const photoRes = await axios.post(`https://graph.facebook.com/v20.0/${accountId}/photos`, null, {
+                  params: {
+                    url: firstMedia,
+                    caption: fullMessage,
+                    access_token: accessToken
+                  }
+                });
+                fbPostId = photoRes.data.post_id || photoRes.data.id;
+                photoUploaded = true;
+              } catch (remoteErr) {
+                console.warn('[Facebook Publish] Remote photo URL upload failed, trying local file fallback:', remoteErr.response?.data?.error?.message || remoteErr.message);
+              }
+            }
+
+            if (!photoUploaded) {
               // Local file upload via FormData
-              const localFilePath = path.join(__dirname, '../../uploads', path.basename(firstMedia));
+              const localFileName = path.basename(firstMedia.split('?')[0]);
+              const localFilePath = path.join(__dirname, '../../uploads', localFileName);
               if (fs.existsSync(localFilePath)) {
                 const form = new FormData();
                 form.append('source', fs.createReadStream(localFilePath));

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, Sparkles, Image as ImageIcon, Calendar, Clock, Repeat, 
-  Send, Save, AlertCircle, Check, HelpCircle, UploadCloud, ExternalLink
+  Send, Save, AlertCircle, Check, HelpCircle, UploadCloud, ExternalLink,
+  Zap, Link as LinkIcon, Plus, Copy
 } from 'lucide-react';
 import SocialMockupPreview from './SocialMockupPreview.jsx';
 
@@ -43,6 +44,11 @@ export default function PostComposerModal({
   const [isUploading, setIsUploading] = useState(false);
   const [isAiOptimizing, setIsAiOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [imageUrlInput, setImageUrlInput] = useState('');
+  const [copiedUrlIndex, setCopiedUrlIndex] = useState(null);
+  const [savingAction, setSavingAction] = useState(null); // 'draft' | 'scheduled' | 'published'
+  const fileInputRef = useRef(null);
 
   // Platform specific overrides
   const [customizations, setCustomizations] = useState({
@@ -171,43 +177,96 @@ export default function PostComposerModal({
     }
   };
 
-  // File Upload to pCloud / Storage
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // File Upload with drag & drop and multi-file support
+  const uploadFiles = async (fileList) => {
+    if (!fileList || fileList.length === 0) return;
     setIsUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('workspace_id', activeWorkspace.id);
 
     try {
-      const res = await fetch('/api/media/upload', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      if (data.pcloud_url || data.local_path) {
-        const fileUrl = data.pcloud_url || `/uploads/${data.pcloud_fileid}`;
-        setMediaUrls(prev => [...prev, fileUrl]);
+      const newUrls = [];
+      for (const file of Array.from(fileList)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('workspace_id', activeWorkspace.id);
+
+        const res = await fetch('/api/media/upload', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Errore caricamento file');
+        }
+
+        const resolvedUrl = data.public_url || data.url || data.pcloud_url || (data.pcloud_fileid ? `/uploads/${data.pcloud_fileid}` : null);
+        if (resolvedUrl) {
+          newUrls.push(resolvedUrl);
+        }
+      }
+
+      if (newUrls.length > 0) {
+        setMediaUrls(prev => [...prev, ...newUrls]);
       }
     } catch (err) {
       console.error('Upload failed:', err);
-      alert('Errore caricamento media.');
+      alert(`Errore nel caricamento: ${err.message}`);
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      await uploadFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleAddMediaUrl = () => {
+    const url = imageUrlInput.trim();
+    if (!url) return;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      alert('Inserisci un URL valido che inizi con http:// o https://');
+      return;
+    }
+    setMediaUrls(prev => [...prev, url]);
+    setImageUrlInput('');
   };
 
   const removeMedia = (index) => {
     setMediaUrls(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Submit Post
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // Submit Post with explicit target status
+  const submitPost = async (targetStatus = 'scheduled') => {
     if (!baseContent.trim()) {
-      alert('Inserisci il testo base del post.');
+      alert('Inserisci il testo base del post prima di procedere.');
+      return;
+    }
+
+    if (targetStatus === 'scheduled' && !scheduledAt) {
+      alert('Seleziona una data e ora di pianificazione per programmare il post.');
       return;
     }
 
@@ -227,19 +286,21 @@ export default function PostComposerModal({
       workspace_id: activeWorkspace.id,
       title: title || baseContent.slice(0, 40),
       base_content: baseContent,
-      status: status,
-      scheduled_at: status === 'scheduled' ? new Date(scheduledAt).toISOString() : null,
+      status: targetStatus,
+      scheduled_at: targetStatus === 'scheduled' ? new Date(scheduledAt).toISOString() : null,
       recycle_interval_days: parseInt(recycleDays, 10) || 0,
       customizations: finalCust,
       id: editingPost?.id
     };
 
     setIsSaving(true);
+    setSavingAction(targetStatus);
+
     try {
       const saved = await onSavePost(payload);
       if (saved && !saved.error) {
         onClose();
-        if (status === 'published' && onViewPostLinks) {
+        if (targetStatus === 'published' && onViewPostLinks) {
           onViewPostLinks(saved, true);
         }
       }
@@ -247,7 +308,13 @@ export default function PostComposerModal({
       console.error('Post submit error:', err);
     } finally {
       setIsSaving(false);
+      setSavingAction(null);
     }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    submitPost(status);
   };
 
   // Current preview values
@@ -523,39 +590,137 @@ export default function PostComposerModal({
               </div>
             </div>
 
-            {/* Media Upload Section with pCloud */}
+            {/* Media Upload Section */}
             <div className="form-group">
-              <label>Media & Creatività (Archiviazione su Cloud pCloud a costo zero):</label>
-              <label className="media-upload-dropzone">
-                <UploadCloud size={24} color="#8B5CF6" style={{ margin: '0 auto 8px', display: 'block' }} />
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#F8FAFC' }}>
-                  {isUploading ? 'Caricamento su pCloud in corso...' : 'Trascina foto/video o clicca per caricare'}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label style={{ margin: 0, fontWeight: 600 }}>Media & Creatività (Immagini/Video):</label>
+                <span style={{ fontSize: '0.72rem', color: '#10B981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Check size={12} /> Compatibile Instagram & Meta (Link Pubblico)
                 </span>
-                <span style={{ display: 'block', fontSize: '0.72rem', color: '#94A3B8', marginTop: 4 }}>
-                  I file vengono salvati automaticamente nella cartella pCloud del cliente
+              </div>
+
+              {/* Drag & Drop Zone */}
+              <div
+                className={`media-upload-dropzone ${isDragging ? 'drag-active' : ''}`}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                id="media-dropzone"
+              >
+                <UploadCloud 
+                  size={28} 
+                  color={isDragging ? '#A78BFA' : '#8B5CF6'} 
+                  style={{ margin: '0 auto 8px', display: 'block', transition: 'transform 0.2s ease', transform: isDragging ? 'scale(1.2)' : 'none' }} 
+                />
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#F8FAFC', display: 'block' }}>
+                  {isUploading 
+                    ? 'Caricamento file e generazione link pubblico...' 
+                    : isDragging 
+                    ? 'Rilascia qui la creatività per caricarla' 
+                    : 'Trascina qui foto/video o clicca per sfogliare'}
+                </span>
+                <span style={{ display: 'block', fontSize: '0.74rem', color: '#94A3B8', marginTop: 4 }}>
+                  I media vengono archiviati e serviti con link pubblico dal dominio per consentire a Instagram di prelevarli
                 </span>
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept="image/*,video/*"
+                  multiple
                   style={{ display: 'none' }}
-                  onChange={handleFileUpload}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      uploadFiles(e.target.files);
+                    }
+                  }}
                   disabled={isUploading}
                 />
-              </label>
+              </div>
 
-              {/* Uploaded media previews */}
+              {/* Add direct URL input */}
+              <div className="media-url-input-box" style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <LinkIcon size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="url"
+                    className="input-field"
+                    style={{ paddingLeft: 32, fontSize: '0.82rem', height: 38 }}
+                    placeholder="Oppure inserisci URL pubblico dell'immagine (es. https://...)"
+                    value={imageUrlInput}
+                    onChange={(e) => setImageUrlInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddMediaUrl();
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ height: 38, padding: '0 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={handleAddMediaUrl}
+                  disabled={!imageUrlInput.trim()}
+                >
+                  <Plus size={14} /> Aggiungi Link
+                </button>
+              </div>
+
+              {/* Uploaded media previews with copy link and public domain indicator */}
               {mediaUrls.length > 0 && (
-                <div className="media-preview-list">
+                <div className="media-preview-list" style={{ marginTop: 12 }}>
                   {mediaUrls.map((url, idx) => (
-                    <div key={idx} className="media-preview-item">
-                      <img src={url} alt="" />
-                      <button
-                        type="button"
-                        className="media-remove-btn"
-                        onClick={() => removeMedia(idx)}
-                      >
-                        ✕
-                      </button>
+                    <div key={idx} className="media-preview-card">
+                      <div className="media-thumb-wrap">
+                        {url.match(/\.(mp4|mov|webm)(\?.*)?$/i) ? (
+                          <video src={url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <img src={url} alt={`Creatività ${idx + 1}`} />
+                        )}
+                        <button
+                          type="button"
+                          className="media-remove-btn"
+                          onClick={() => removeMedia(idx)}
+                          title="Rimuovi creatività"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="media-card-info">
+                        <span className="media-url-text" title={url}>
+                          {url.length > 30 ? `${url.slice(0, 27)}...` : url}
+                        </span>
+                        <div className="media-card-actions">
+                          <button
+                            type="button"
+                            className="btn-copy-media-url"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(url);
+                              setCopiedUrlIndex(idx);
+                              setTimeout(() => setCopiedUrlIndex(null), 2000);
+                            }}
+                            title="Copia link pubblico per verifica"
+                          >
+                            {copiedUrlIndex === idx ? (
+                              <><Check size={11} color="#10B981" /> Copiato</>
+                            ) : (
+                              <><Copy size={11} /> Copia URL</>
+                            )}
+                          </button>
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-open-media-url"
+                            title="Apri immagine in nuova scheda"
+                          >
+                            <ExternalLink size={11} />
+                          </a>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -657,35 +822,63 @@ export default function PostComposerModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="modal-footer">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={isSaving}>
             Annulla
           </button>
-          <div style={{ display: 'flex', gap: 10 }}>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn-secondary"
               disabled={isSaving || isUploading}
-              onClick={() => {
-                setStatus('draft');
-                setTimeout(() => document.querySelector('.composer-form-pane')?.requestSubmit(), 50);
-              }}
+              onClick={() => submitPost('draft')}
+              id="btn-save-draft"
             >
-              <Save size={16} /> Salva Bozza
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={isSaving || isUploading}
-              onClick={() => document.querySelector('.composer-form-pane')?.requestSubmit()}
-              id="btn-confirm-post"
-            >
-              {isSaving ? (
-                <span>{status === 'published' ? 'Pubblicazione in corso...' : 'Salvataggio...'}</span>
+              {isSaving && savingAction === 'draft' ? (
+                <span>Salvataggio bozza...</span>
               ) : (
                 <>
-                  <Send size={16} />
-                  <span>{status === 'published' ? 'Pubblica Adesso' : 'Programma Post'}</span>
+                  <Save size={16} />
+                  <span>Salva Bozza</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ borderColor: 'rgba(139, 92, 246, 0.4)', color: '#C4B5FD' }}
+              disabled={isSaving || isUploading}
+              onClick={() => submitPost('scheduled')}
+              id="btn-schedule-post"
+            >
+              {isSaving && savingAction === 'scheduled' ? (
+                <span>Pianificazione...</span>
+              ) : (
+                <>
+                  <Calendar size={16} />
+                  <span>Programma Post</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="btn-publish-now"
+              disabled={isSaving || isUploading}
+              onClick={() => submitPost('published')}
+              id="btn-publish-now"
+            >
+              {isSaving && savingAction === 'published' ? (
+                <>
+                  <span className="spinner-sm" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: 6 }} />
+                  <span>Pubblicazione in corso...</span>
+                </>
+              ) : (
+                <>
+                  <Zap size={16} />
+                  <span>⚡ Pubblica Ora</span>
                 </>
               )}
             </button>

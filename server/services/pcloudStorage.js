@@ -158,6 +158,9 @@ class PCloudStorageService {
     }
 
     // 2. Zero-cost Local / Fallback Storage
+    if (!fs.existsSync(LOCAL_UPLOAD_DIR)) {
+      try { fs.mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true }); } catch (e) {}
+    }
     const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const targetFilePath = path.join(LOCAL_UPLOAD_DIR, safeName);
     fs.writeFileSync(targetFilePath, fileBuffer);
