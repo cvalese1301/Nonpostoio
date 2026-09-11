@@ -90,15 +90,15 @@ function resolveRedirectUri(req, customRedirectUri = '') {
  */
 function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, configId }) {
   if (platform === 'threads') {
-    // Official Threads OAuth 2.0 Authorization Endpoint
+    // Official Threads OAuth 2.0 Authorization Endpoint (pass both app_id and client_id to prevent error 4476002)
     const scopes = 'threads_basic,threads_content_publish,threads_manage_insights,threads_read_replies,threads_manage_replies';
-    return `https://threads.net/oauth/authorize?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
+    return `https://threads.net/oauth/authorize?app_id=${encodeURIComponent(appId)}&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
   }
 
   if (platform === 'instagram_direct') {
     // Direct Instagram Business OAuth (independent of Facebook Page / Business Portfolio)
     const scopes = 'instagram_business_basic,instagram_business_manage_comments,instagram_business_content_publish,instagram_business_manage_insights';
-    return `https://www.instagram.com/oauth/authorize/third_party/?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
+    return `https://www.instagram.com/oauth/authorize/third_party/?app_id=${encodeURIComponent(appId)}&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
   }
 
   // Standard Facebook & Instagram-via-Facebook authorization (Identical to Pubblie.io)
@@ -124,8 +124,8 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, config
   }
 
   const scopeString = scopes.join(',');
-  // v22.0 matching Pubblie
-  return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest&display=popup&scope=${encodeURIComponent(scopeString)}`;
+  // v22.0 matching Pubblie (pass both app_id and client_id, display=popup)
+  return `https://www.facebook.com/v22.0/dialog/oauth?app_id=${encodeURIComponent(appId)}&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest&display=popup&scope=${encodeURIComponent(scopeString)}`;
 }
 
 /**

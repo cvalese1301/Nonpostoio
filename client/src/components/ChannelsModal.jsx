@@ -226,6 +226,18 @@ export default function ChannelsModal({
     const channelData = getChannelData(realPlatform);
     if (!channelData) return;
 
+    const isMetaFamily = ['facebook', 'instagram', 'threads', 'instagram_direct'].includes(platformKey);
+    const isThreads = platformKey === 'threads';
+    const hasAppId = isThreads 
+      ? (masterSettings.oauth_threads_app_id || masterSettings.oauth_meta_app_id)
+      : masterSettings.oauth_meta_app_id;
+
+    if (isMetaFamily && !hasAppId) {
+      alert(`⚠️ Configurazione richiesta:\n\nPrima di collegare ${platformKey.toUpperCase()}, devi prima inserire l'App ID e l'App Secret nelle impostazioni cliccando sul pulsante "OAuth Config" in alto a destra (oppure configurare le variabili d'ambiente OAUTH_META_APP_ID su Render).`);
+      setView('admin');
+      return;
+    }
+
     setConnectingPlatform(platformKey);
 
     const width = 600;
@@ -234,7 +246,6 @@ export default function ChannelsModal({
     const top = window.screenY + (window.outerHeight - height) / 2;
 
     const token = localStorage.getItem('nonposto_auth_token') || '';
-    const isMetaFamily = ['facebook', 'instagram', 'threads', 'instagram_direct'].includes(platformKey);
 
     if (isMetaFamily) {
       const startUrl = `/api/oauth/meta/start?channel_id=${channelData.id}&platform=${platformKey}&token=${encodeURIComponent(token)}`;
