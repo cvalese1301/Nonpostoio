@@ -125,12 +125,12 @@ export default function SettingsModal({
                 value={pcloudToken}
                 onChange={(e) => setPcloudToken(e.target.value)}
               />
-              <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                Puoi generare un token gratuito da: 
-                <a href="https://docs.pcloud.com/methods/oauth_2.0/authorize.html" target="_blank" rel="noreferrer" style={{ color: '#8B5CF6', marginLeft: 4 }}>
-                  pCloud Developer Portal
-                </a>
-              </span>
+              <div style={{ fontSize: '0.74rem', color: '#94A3B8', marginTop: 6, lineHeight: 1.5, background: 'rgba(139, 92, 246, 0.08)', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+                <strong style={{ color: '#E2E8F0' }}>Come ottenere il token in 30 secondi:</strong><br />
+                1. Apri <a href="https://docs.pcloud.com/my_apps/" target="_blank" rel="noreferrer" style={{ color: '#A78BFA', textDecoration: 'underline', fontWeight: 600 }}>docs.pcloud.com/my_apps/</a> (o <a href="https://my.pcloud.com/#page=apps" target="_blank" rel="noreferrer" style={{ color: '#A78BFA', textDecoration: 'underline', fontWeight: 600 }}>my.pcloud.com/apps</a>)<br />
+                2. Crea una nuova applicazione (es. <em>NonPosto</em>) con permessi standard.<br />
+                3. Nella pagina dell'app, clicca <strong>"Generate access token"</strong>, copialo e incollalo nel campo qui sopra!
+              </div>
             </div>
 
             <div className="form-group">

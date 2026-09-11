@@ -117,17 +117,27 @@ class PCloudStorageService {
           const fileMeta = uploadRes.data.metadata[0];
           const fileId = fileMeta.fileid;
 
-          // Obtain direct streaming / public link
+          // Obtain direct raw media streaming / public link for Meta & Instagram compatibility
           let publicUrl = '';
           try {
             const linkRes = await axios.get(
               `${apiHost}/getfilepublink?access_token=${token}&fileid=${fileId}`
             );
-            if (linkRes.data && linkRes.data.link) {
-              publicUrl = linkRes.data.link;
+            if (linkRes.data && linkRes.data.result === 0) {
+              const code = linkRes.data.code;
+              if (code) {
+                // Fetch direct raw file download/stream host and path via getpublinkdownload
+                const dlRes = await axios.get(`${apiHost}/getpublinkdownload?code=${encodeURIComponent(code)}`);
+                if (dlRes.data && dlRes.data.result === 0 && dlRes.data.hosts?.[0] && dlRes.data.path) {
+                  publicUrl = `https://${dlRes.data.hosts[0]}${dlRes.data.path}`;
+                }
+              }
+              if (!publicUrl && linkRes.data.link) {
+                publicUrl = linkRes.data.link;
+              }
             }
           } catch (e) {
-            console.warn('[pCloud] Could not create publink, falling back to direct stream link');
+            console.warn('[pCloud] Could not create publink, trying getfilelink stream');
           }
 
           if (!publicUrl) {
