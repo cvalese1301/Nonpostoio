@@ -91,7 +91,7 @@ function resolveRedirectUri(req, customRedirectUri = '') {
 function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, configId }) {
   if (platform === 'threads') {
     // Official Threads OAuth 2.0 Authorization Endpoint (pass both app_id and client_id to prevent error 4476002)
-    const scopes = 'threads_basic,threads_content_publish,threads_manage_insights,threads_read_replies,threads_manage_replies';
+    const scopes = 'threads_basic,threads_content_publish';
     return `https://threads.net/oauth/authorize?app_id=${encodeURIComponent(appId)}&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
   }
 
