@@ -128,6 +128,9 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, config
   return `https://www.facebook.com/v22.0/dialog/oauth?app_id=${encodeURIComponent(appId)}&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest&display=popup&scope=${encodeURIComponent(scopeString)}`;
 }
 
+const codeExchangeCache = new Map();
+const inFlightExchanges = new Map();
+
 /**
  * Exchange authorization code for user access token and extend to 60 days
  */
@@ -136,106 +139,137 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri, plat
     throw new Error('Credenziali mancanti: App ID o App Secret non configurati. Verifica le impostazioni Master OAuth o aggiungi le variabili d\'ambiente su Render.');
   }
 
-  if (platform === 'threads') {
-    // Threads authorization code exchange on graph.threads.net
-    const params = new URLSearchParams();
-    params.append('client_id', appId);
-    params.append('client_secret', appSecret);
-    params.append('grant_type', 'authorization_code');
-    params.append('redirect_uri', redirectUri);
-    params.append('code', code);
+  const cleanCode = (code || '').split('#')[0].trim();
+  const cacheKey = `${platform}_${cleanCode}`;
 
-    const tokenRes = await axios.post('https://graph.threads.net/oauth/access_token', params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  // If this code was already exchanged in the last 2 minutes, return cached token immediately
+  if (codeExchangeCache.has(cacheKey)) {
+    console.log(`[OAuth] Reusing recently exchanged token for ${platform} (duplicate request absorbed)`);
+    return codeExchangeCache.get(cacheKey);
+  }
+
+  // If another request is currently exchanging this exact code, await it instead of making a duplicate call
+  if (inFlightExchanges.has(cacheKey)) {
+    console.log(`[OAuth] Awaiting in-flight code exchange for ${platform}`);
+    return await inFlightExchanges.get(cacheKey);
+  }
+
+  const doExchange = async () => {
+    if (platform === 'threads') {
+      // Threads authorization code exchange on graph.threads.net
+      const params = new URLSearchParams();
+      params.append('client_id', appId);
+      params.append('client_secret', appSecret);
+      params.append('grant_type', 'authorization_code');
+      params.append('redirect_uri', redirectUri);
+      params.append('code', cleanCode);
+
+      const tokenRes = await axios.post('https://graph.threads.net/oauth/access_token', params.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+
+      const shortLivedToken = tokenRes.data.access_token;
+      let finalToken = shortLivedToken;
+
+      // Exchange for long-lived 60-day token on Threads
+      try {
+        const extendRes = await axios.get('https://graph.threads.net/access_token', {
+          params: {
+            grant_type: 'th_exchange_token',
+            client_secret: appSecret,
+            access_token: shortLivedToken
+          }
+        });
+        if (extendRes.data?.access_token) {
+          finalToken = extendRes.data.access_token;
+        }
+      } catch (err) {
+        console.warn('[Threads OAuth] Impossibile estendere token Threads a 60 giorni, uso token base:', err.message);
+      }
+
+      return finalToken;
+    }
+
+    if (platform === 'instagram_direct') {
+      // Instagram Direct OAuth exchange
+      const form = new URLSearchParams();
+      form.append('client_id', appId);
+      form.append('client_secret', appSecret);
+      form.append('grant_type', 'authorization_code');
+      form.append('redirect_uri', redirectUri);
+      form.append('code', cleanCode);
+
+      const tokenRes = await axios.post('https://api.instagram.com/oauth/access_token', form.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+
+      const shortToken = tokenRes.data.access_token;
+      let finalToken = shortToken;
+
+      try {
+        const extendRes = await axios.get('https://graph.instagram.com/access_token', {
+          params: {
+            grant_type: 'ig_exchange_token',
+            client_secret: appSecret,
+            access_token: shortToken
+          }
+        });
+        if (extendRes.data?.access_token) {
+          finalToken = extendRes.data.access_token;
+        }
+      } catch (err) {
+        console.warn('[Instagram Direct] Impossibile estendere token a 60 giorni:', err.message);
+      }
+
+      return finalToken;
+    }
+
+    // Step 1: Exchange code for short-lived token on Facebook Graph API v22.0
+    const tokenRes = await axios.get('https://graph.facebook.com/v22.0/oauth/access_token', {
+      params: {
+        client_id: appId,
+        client_secret: appSecret,
+        redirect_uri: redirectUri,
+        code: cleanCode
+      }
     });
 
     const shortLivedToken = tokenRes.data.access_token;
     let finalToken = shortLivedToken;
 
-    // Exchange for long-lived 60-day token on Threads
+    // Step 2: Exchange for long-lived 60-day token
     try {
-      const extendRes = await axios.get('https://graph.threads.net/access_token', {
+      const extendRes = await axios.get('https://graph.facebook.com/v22.0/oauth/access_token', {
         params: {
-          grant_type: 'th_exchange_token',
+          grant_type: 'fb_exchange_token',
+          client_id: appId,
           client_secret: appSecret,
-          access_token: shortLivedToken
+          fb_exchange_token: shortLivedToken
         }
       });
       if (extendRes.data?.access_token) {
         finalToken = extendRes.data.access_token;
       }
     } catch (err) {
-      console.warn('[Threads OAuth] Impossibile estendere token Threads a 60 giorni, uso token base:', err.message);
+      console.warn('[Meta OAuth] Long-lived token exchange failed, falling back to short-lived token:', err.message);
     }
 
     return finalToken;
-  }
+  };
 
-  if (platform === 'instagram_direct') {
-    // Instagram Direct OAuth exchange
-    const form = new URLSearchParams();
-    form.append('client_id', appId);
-    form.append('client_secret', appSecret);
-    form.append('grant_type', 'authorization_code');
-    form.append('redirect_uri', redirectUri);
-    form.append('code', code);
+  const promise = doExchange();
+  inFlightExchanges.set(cacheKey, promise);
 
-    const tokenRes = await axios.post('https://api.instagram.com/oauth/access_token', form.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-
-    const shortToken = tokenRes.data.access_token;
-    let finalToken = shortToken;
-
-    try {
-      const extendRes = await axios.get('https://graph.instagram.com/access_token', {
-        params: {
-          grant_type: 'ig_exchange_token',
-          client_secret: appSecret,
-          access_token: shortToken
-        }
-      });
-      if (extendRes.data?.access_token) {
-        finalToken = extendRes.data.access_token;
-      }
-    } catch (err) {
-      console.warn('[Instagram Direct] Impossibile estendere token a 60 giorni:', err.message);
-    }
-
-    return finalToken;
-  }
-
-  // Step 1: Exchange code for short-lived token on Facebook Graph API v22.0
-  const tokenRes = await axios.get('https://graph.facebook.com/v22.0/oauth/access_token', {
-    params: {
-      client_id: appId,
-      client_secret: appSecret,
-      redirect_uri: redirectUri,
-      code
-    }
-  });
-
-  const shortLivedToken = tokenRes.data.access_token;
-  let finalToken = shortLivedToken;
-
-  // Step 2: Exchange for long-lived 60-day token
   try {
-    const extendRes = await axios.get('https://graph.facebook.com/v22.0/oauth/access_token', {
-      params: {
-        grant_type: 'fb_exchange_token',
-        client_id: appId,
-        client_secret: appSecret,
-        fb_exchange_token: shortLivedToken
-      }
-    });
-    if (extendRes.data?.access_token) {
-      finalToken = extendRes.data.access_token;
-    }
-  } catch (err) {
-    console.warn('[Meta OAuth] Long-lived token exchange failed, falling back to short-lived token:', err.message);
+    const resultToken = await promise;
+    codeExchangeCache.set(cacheKey, resultToken);
+    setTimeout(() => {
+      codeExchangeCache.delete(cacheKey);
+    }, 2 * 60 * 1000);
+    return resultToken;
+  } finally {
+    inFlightExchanges.delete(cacheKey);
   }
-
-  return finalToken;
 }
 
 
