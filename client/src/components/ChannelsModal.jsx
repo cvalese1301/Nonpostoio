@@ -826,6 +826,25 @@ export default function ChannelsModal({
               placeholder="••••••••" 
             />
           </div>
+          <div style={{ marginTop: 8, fontSize: '0.68rem', color: '#94A3B8', background: 'rgba(255,255,255,0.03)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ display: 'block', marginBottom: 2, color: '#CBD5E1' }}>URI Reindirizzamento OAuth Meta:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <code style={{ fontSize: '0.66rem', color: '#38BDF8', wordBreak: 'break-all' }}>
+                {typeof window !== 'undefined' ? `${window.location.origin}/api/oauth/meta/callback` : '/api/oauth/meta/callback'}
+              </code>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ padding: '2px 6px', fontSize: '0.65rem', flexShrink: 0, marginLeft: 'auto' }}
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/api/oauth/meta/callback`);
+                  alert('URI copiato!\n\nIncollalo nella console Meta sotto "URI di reindirizzamento OAuth validi".');
+                }}
+              >
+                <Copy size={10} /> Copia
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Threads Dedicated */}
@@ -853,6 +872,25 @@ export default function ChannelsModal({
               onChange={e => setMasterSettings({ ...masterSettings, oauth_threads_app_secret: e.target.value })} 
               placeholder="••••••••" 
             />
+          </div>
+          <div style={{ marginTop: 8, fontSize: '0.68rem', color: '#94A3B8', background: 'rgba(255,255,255,0.03)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ display: 'block', marginBottom: 2, color: '#CBD5E1' }}>URI Reindirizzamento OAuth Threads:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <code style={{ fontSize: '0.66rem', color: '#38BDF8', wordBreak: 'break-all' }}>
+                {typeof window !== 'undefined' ? `${window.location.origin}/api/oauth/meta/callback` : '/api/oauth/meta/callback'}
+              </code>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ padding: '2px 6px', fontSize: '0.65rem', flexShrink: 0, marginLeft: 'auto' }}
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/api/oauth/meta/callback`);
+                  alert('URI copiato!\n\nIncollalo nella console Meta dell\'app Threads sotto "URI di reindirizzamento OAuth validi".');
+                }}
+              >
+                <Copy size={10} /> Copia
+              </button>
+            </div>
           </div>
         </div>
 
