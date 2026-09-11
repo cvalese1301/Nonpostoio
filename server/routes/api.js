@@ -478,31 +478,44 @@ router.get('/oauth/meta/callback', async (req, res) => {
     }
 
     const { userId, channelId, platform, workspaceId, workspaceName } = statePayload;
+    const isThreads = platform === 'threads';
+    const isInstagramDirect = platform === 'instagram_direct';
 
-    let { appId, appSecret, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+    const creds = await metaOAuthService.getMetaCredentials();
 
-    // Self-healing auto-recovery: restore from encrypted OAuth state if needed
-    if (!appId && statePayload.appId) {
-      appId = statePayload.appId;
+    let effectiveAppId = (isThreads && creds.threadsAppId) ? creds.threadsAppId : creds.appId;
+    let effectiveAppSecret = (isThreads && creds.threadsAppSecret) ? creds.threadsAppSecret : creds.appSecret;
+
+    // Prefer exact credentials passed in statePayload from the initial start request
+    if (statePayload.appId) {
+      effectiveAppId = statePayload.appId;
     }
-    if (!appSecret && statePayload.encSecret) {
-      appSecret = metaOAuthService.decryptSecret(statePayload.encSecret);
-    }
-
-    if (appId && appSecret) {
+    if (statePayload.encSecret) {
       try {
-        await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_id', ?)", [appId]);
-        await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [appSecret]);
+        const decrypted = metaOAuthService.decryptSecret(statePayload.encSecret);
+        if (decrypted) effectiveAppSecret = decrypted;
+      } catch (e) {}
+    }
+
+    if (effectiveAppId && effectiveAppSecret) {
+      try {
+        if (isThreads) {
+          await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_threads_app_id', ?)", [effectiveAppId]);
+          await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_threads_app_secret', ?)", [effectiveAppSecret]);
+        } else {
+          await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_id', ?)", [effectiveAppId]);
+          await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [effectiveAppSecret]);
+        }
       } catch (dbErr) {}
     }
 
-    const redirectUri = metaOAuthService.resolveRedirectUri(req, customRedirectUri);
+    const redirectUri = metaOAuthService.resolveRedirectUri(req, creds.customRedirectUri);
 
     // Step 1: Exchange code for long-lived user token
     const userToken = await metaOAuthService.exchangeCodeForTokens({
       code,
-      appId,
-      appSecret,
+      appId: effectiveAppId,
+      appSecret: effectiveAppSecret,
       redirectUri,
       platform
     });
