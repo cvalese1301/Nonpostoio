@@ -294,15 +294,15 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
 
     const creds = await metaOAuthService.getMetaCredentials();
     const isThreads = platform === 'threads';
+    const isInstagramDirect = platform === 'instagram_direct';
     const effectiveAppId = (isThreads && creds.threadsAppId) ? creds.threadsAppId : creds.appId;
     const effectiveAppSecret = (isThreads && creds.threadsAppSecret) ? creds.threadsAppSecret : creds.appSecret;
-    const effectiveConfigId = isThreads ? '' : creds.configId;
 
     if (!effectiveAppId || !effectiveAppSecret) {
       return res.status(400).send(`
         <!DOCTYPE html>
         <html>
-        <head><title>Credenziali ${isThreads ? 'Threads' : 'Meta'} Mancanti</title></head>
+        <head><title>Credenziali ${isThreads ? 'Threads' : (isInstagramDirect ? 'Instagram' : 'Meta')} Mancanti</title></head>
         <body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#0B0F19; color:#F1F5F9; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:20px;">
           <div style="background:#151D30; border:1px solid #23304E; border-radius:16px; padding:32px; max-width:440px; text-align:center;">
             <div style="font-size:40px; margin-bottom:12px;">⚠️</div>
@@ -332,7 +332,6 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       workspaceName: channel.workspace_name,
       appId: effectiveAppId,
       encSecret: metaOAuthService.encryptSecret(effectiveAppSecret),
-      configId: effectiveConfigId,
       ts: Date.now()
     };
     const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
@@ -341,8 +340,7 @@ router.get('/oauth/meta/start', authMiddleware, async (req, res) => {
       appId: effectiveAppId,
       redirectUri,
       platform,
-      state,
-      configId: effectiveConfigId
+      state
     });
 
     res.redirect(authUrl);
@@ -397,30 +395,21 @@ router.get('/oauth/meta/callback', async (req, res) => {
 
     const { userId, channelId, platform, workspaceId, workspaceName } = statePayload;
 
-    let { appId, appSecret, configId, customRedirectUri } = await metaOAuthService.getMetaCredentials();
+    let { appId, appSecret, customRedirectUri } = await metaOAuthService.getMetaCredentials();
 
-    // Self-healing auto-recovery: if SQLite was reset or creds are missing, restore from encrypted OAuth state
+    // Self-healing auto-recovery: restore from encrypted OAuth state if needed
     if (!appId && statePayload.appId) {
       appId = statePayload.appId;
     }
     if (!appSecret && statePayload.encSecret) {
       appSecret = metaOAuthService.decryptSecret(statePayload.encSecret);
     }
-    if (!configId && statePayload.configId) {
-      configId = statePayload.configId;
-    }
 
-    // Persist restored credentials back into database settings so subsequent operations have them
     if (appId && appSecret) {
       try {
         await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_id', ?)", [appId]);
         await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_app_secret', ?)", [appSecret]);
-        if (configId) {
-          await run("INSERT OR REPLACE INTO settings (key, value) VALUES ('oauth_meta_config_id', ?)", [configId]);
-        }
-      } catch (dbErr) {
-        console.warn('[Meta OAuth] Impossibile persistere credenziali ripristinate:', dbErr.message);
-      }
+      } catch (dbErr) {}
     }
 
     const redirectUri = metaOAuthService.resolveRedirectUri(req, customRedirectUri);
@@ -446,7 +435,7 @@ router.get('/oauth/meta/callback', async (req, res) => {
        FROM channels c 
        JOIN workspaces w ON c.workspace_id = w.id 
        WHERE w.user_id = ? AND c.active = 1 AND c.platform = ?`,
-      [userId, platform]
+      [userId, platform === 'instagram_direct' ? 'instagram' : platform]
     );
 
     const connectedMap = new Set();
@@ -539,6 +528,7 @@ router.post('/oauth/meta/finalize', async (req, res) => {
     }
 
     const { userId, channelId, platform, workspaceId, userToken } = statePayload;
+    const realPlatform = (platform === 'instagram_direct') ? 'instagram' : platform;
 
     let channel = await get(
       `SELECT c.* FROM channels c 
@@ -548,13 +538,12 @@ router.post('/oauth/meta/finalize', async (req, res) => {
     );
 
     if (!channel) {
-      // Fallback: match channel by platform for this user/workspace
       channel = await get(
         `SELECT c.* FROM channels c 
          JOIN workspaces w ON c.workspace_id = w.id 
          WHERE w.user_id = ? AND c.platform = ? 
          ORDER BY c.id ASC LIMIT 1`,
-        [userId, platform]
+        [userId, realPlatform]
       );
     }
 
@@ -566,21 +555,28 @@ router.post('/oauth/meta/finalize', async (req, res) => {
     const cleanHandle = account.handle?.startsWith('@') ? account.handle : `@${account.handle || account.name}`;
 
     const config = {
-      connected_via: platform === 'threads' ? 'threads_oauth_live' : 'meta_oauth_live',
+      connected_via: platform === 'threads' ? 'threads_oauth_live' : (platform === 'instagram_direct' ? 'instagram_direct_live' : 'meta_oauth_live'),
       connected_at: new Date().toISOString(),
-      platform,
+      platform: realPlatform,
       account_id: account.id,
       access_token: account.access_token || userToken,
-      category: account.category || (platform === 'threads' ? 'Profilo Threads' : ''),
+      category: account.category || '',
       scopes: platform === 'threads'
         ? ['threads_basic', 'threads_content_publish']
         : [
             'pages_show_list',
             'pages_read_engagement',
             'pages_manage_posts',
-            platform === 'instagram' ? 'instagram_content_publish' : ''
+            'pages_manage_metadata',
+            'read_insights',
+            realPlatform === 'instagram' ? 'instagram_content_publish' : ''
           ].filter(Boolean)
     };
+
+    // Pubblie standard: 60 days token expiration
+    const tokenExpiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    const tokenUpdatedAt = new Date().toISOString();
+    const channelType = account.channel_type || (realPlatform === 'facebook' ? 'pagina' : (realPlatform === 'instagram' ? (platform === 'instagram_direct' ? 'business' : 'via Facebook • business') : (realPlatform === 'linkedin' ? 'organizzazione' : 'profilo')));
 
     await run(
       `UPDATE channels 
@@ -588,12 +584,22 @@ router.post('/oauth/meta/finalize', async (req, res) => {
            handle = ?,
            avatar_url = ?,
            active = 1,
+           status = 'active',
+           is_preselected = 1,
+           token_expires_at = ?,
+           token_updated_at = ?,
+           social_id = ?,
+           channel_type = ?,
            config_json = ?
        WHERE id = ?`,
       [
         account.name.trim(),
         cleanHandle.trim(),
         account.avatar_url || '',
+        tokenExpiresAt,
+        tokenUpdatedAt,
+        account.id,
+        channelType,
         JSON.stringify(config),
         targetChannelId
       ]
@@ -610,6 +616,48 @@ router.post('/oauth/meta/finalize', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Toggle Preselected state on channel (Pubblie: "Preselezionato su nuovo post")
+router.put('/channels/:id/preselected', authMiddleware, async (req, res) => {
+  try {
+    const { is_preselected } = req.body;
+    await run(
+      `UPDATE channels SET is_preselected = ? WHERE id = ?`,
+      [is_preselected ? 1 : 0, req.params.id]
+    );
+    const updated = await get('SELECT * FROM channels WHERE id = ?', [req.params.id]);
+    res.json({ success: true, channel: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Channel Action: disable, enable, unlink (Pubblie Channel Detail actions)
+router.post('/channels/:id/action', authMiddleware, async (req, res) => {
+  try {
+    const { action } = req.body;
+    const channelId = req.params.id;
+
+    if (action === 'disable') {
+      await run('UPDATE channels SET active = 0, status = "disabled" WHERE id = ?', [channelId]);
+    } else if (action === 'enable') {
+      await run('UPDATE channels SET active = 1, status = "active" WHERE id = ?', [channelId]);
+    } else if (action === 'unlink') {
+      await run(
+        `UPDATE channels 
+         SET active = 0, status = 'unlinked', account_name = '', handle = '', avatar_url = '', config_json = '{}', token_expires_at = NULL 
+         WHERE id = ?`,
+        [channelId]
+      );
+    }
+
+    const updated = await get('SELECT * FROM channels WHERE id = ?', [channelId]);
+    res.json({ success: true, channel: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // OAuth Login & Connection — only works if OAuth is configured for the platform
 router.post('/channels/:id/oauth-login', authMiddleware, async (req, res) => {

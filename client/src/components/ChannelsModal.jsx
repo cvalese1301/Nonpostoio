@@ -1,77 +1,81 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, Share2, Check, RefreshCw, Link2, CheckCircle2, LogOut, 
-  Wifi, WifiOff, AlertTriangle, Settings, ShieldCheck, Eye, EyeOff, Activity
+  Wifi, AlertTriangle, Settings, Eye, EyeOff, Activity, Plus, ArrowLeft, Sliders
 } from 'lucide-react';
 import LogsModal from './LogsModal';
 
-const CHANNELS = [
+const PROVIDERS = [
   {
     key: 'facebook',
     name: 'Facebook',
-    desc: 'Pagine e Gruppi',
+    desc: 'pagina o gruppo',
     color: '#1877F2',
-    icon: 'f',
-    oauthGroup: 'meta'
+    iconText: 'f'
   },
   {
     key: 'instagram',
     name: 'Instagram',
-    desc: 'Feed, Reels e Storie',
-    color: '#E1306C',
-    icon: '',
-    oauthGroup: 'meta'
+    desc: 'account business o creator',
+    color: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
+    iconText: '📷',
+    isInstagram: true
   },
   {
     key: 'threads',
     name: 'Threads',
-    desc: 'Post e conversazioni',
+    desc: 'profilo',
     color: '#000000',
-    borderColor: '#555',
-    icon: '',
-    oauthGroup: 'meta'
+    iconText: '@'
   },
   {
     key: 'tiktok',
     name: 'TikTok',
-    desc: 'Video e clip virali',
+    desc: 'profilo',
     color: '#000000',
-    borderColor: '#25F4EE',
-    icon: '',
-    oauthGroup: 'tiktok'
+    iconText: '♪'
   },
   {
     key: 'youtube',
-    name: 'YouTube',
-    desc: 'Video, Short e Community',
+    name: 'Youtube',
+    desc: 'profilo',
     color: '#FF0000',
-    icon: '',
-    oauthGroup: 'google'
+    iconText: '▶'
   },
   {
     key: 'x',
-    name: 'X (Twitter)',
-    desc: 'Post e Thread',
+    name: 'X-Twitter',
+    desc: 'profilo',
     color: '#000000',
-    borderColor: '#71717A',
-    icon: '𝕏',
-    oauthGroup: 'x'
+    iconText: '𝕏'
   },
   {
     key: 'linkedin',
     name: 'LinkedIn',
-    desc: 'Profili e Pagine Aziendali',
+    desc: 'organizzazione o profilo',
     color: '#0A66C2',
-    icon: '',
-    oauthGroup: 'linkedin'
+    iconText: 'in'
+  },
+  {
+    key: 'pinterest',
+    name: 'Pinterest',
+    desc: 'profilo',
+    color: '#E60023',
+    iconText: 'P'
   },
   {
     key: 'google_business',
-    name: 'Google Business',
-    desc: 'Scheda Google Maps',
+    name: 'Google My Business',
+    desc: 'profilo',
     color: '#4285F4',
-    icon: 'G',
-    oauthGroup: 'google'
+    iconText: 'G'
+  },
+  {
+    key: 'telegram',
+    name: 'Telegram',
+    desc: 'canale o gruppo',
+    color: '#229ED9',
+    iconText: '✈'
   }
 ];
 
@@ -83,21 +87,23 @@ export default function ChannelsModal({
   onRefreshChannels,
   user
 }) {
+  const [view, setView] = useState('list'); // 'list' | 'add' | 'detail' | 'instagram_choice' | 'admin'
+  const [selectedChannel, setSelectedChannel] = useState(null);
+  const [showDirectDisclaimer, setShowDirectDisclaimer] = useState(false);
+
   const [connectingPlatform, setConnectingPlatform] = useState(null);
   const [connectSuccess, setConnectSuccess] = useState(null);
-  const [disconnecting, setDisconnecting] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
   const [oauthStatus, setOauthStatus] = useState({});
   const [loadingOauth, setLoadingOauth] = useState(true);
   const timerRef = useRef(null);
 
-  // Admin panel state (accessible to configure master OAuth credentials)
+  // Admin Master OAuth State
   const isAdmin = true;
-  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [masterSettings, setMasterSettings] = useState({
     oauth_meta_app_id: '',
     oauth_meta_app_secret: '',
-    oauth_meta_config_id: '',
     oauth_threads_app_id: '',
     oauth_threads_app_secret: '',
     oauth_google_client_id: '',
@@ -119,13 +125,32 @@ export default function ChannelsModal({
     };
   }, []);
 
-  // Load OAuth status and master settings when modal opens
   useEffect(() => {
     if (isOpen) {
+      setView('list');
+      setSelectedChannel(null);
+      setShowDirectDisclaimer(false);
       fetchOAuthStatus();
       fetchMasterSettings();
     }
   }, [isOpen]);
+
+  // Listen for popup messages
+  useEffect(() => {
+    const handleMessage = (e) => {
+      if (e.data?.type === 'oauth_success') {
+        setConnectingPlatform(null);
+        setConnectSuccess(e.data.platform);
+        if (onRefreshChannels) onRefreshChannels();
+        setView('list');
+        setTimeout(() => setConnectSuccess(null), 3500);
+      } else if (e.data?.type === 'oauth_error') {
+        setConnectingPlatform(null);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [onRefreshChannels]);
 
   const fetchOAuthStatus = async () => {
     setLoadingOauth(true);
@@ -149,7 +174,6 @@ export default function ChannelsModal({
           ...prev,
           oauth_meta_app_id: data.oauth_meta_app_id || '',
           oauth_meta_app_secret: data.oauth_meta_app_secret || '',
-          oauth_meta_config_id: data.oauth_meta_config_id || '',
           oauth_threads_app_id: data.oauth_threads_app_id || '',
           oauth_threads_app_secret: data.oauth_threads_app_secret || '',
           oauth_google_client_id: data.oauth_google_client_id || '',
@@ -186,514 +210,682 @@ export default function ChannelsModal({
         alert(data.error || 'Errore salvataggio impostazioni.');
       }
     } catch (err) {
-      alert('Errore di connessione con il server: ' + err.message);
+      alert('Errore di connessione: ' + err.message);
     } finally {
       setIsSavingMaster(false);
     }
   };
 
-  if (!isOpen) return null;
-
   const getChannelData = (platformKey) => {
-    return channels.find(c => c.platform === platformKey);
+    const realKey = platformKey === 'instagram_direct' ? 'instagram' : platformKey;
+    return channels.find(c => c.platform === realKey);
   };
 
   const handleConnect = async (platformKey) => {
-    const channelData = getChannelData(platformKey);
+    const realPlatform = platformKey === 'instagram_direct' ? 'instagram' : platformKey;
+    const channelData = getChannelData(realPlatform);
     if (!channelData) return;
 
-    // Check OAuth is configured
-    if (!oauthStatus[platformKey]) {
-      alert(`OAuth non ancora configurato per ${CHANNELS.find(c => c.key === platformKey)?.name || platformKey}.\n\nL'amministratore deve prima configurare le credenziali OAuth nella sezione Impostazioni.`);
-      return;
-    }
-
-    const channelMeta = CHANNELS.find(c => c.key === platformKey);
     setConnectingPlatform(platformKey);
 
-    // Open OAuth popup
-    const width = 560;
-    const height = 700;
+    const width = 600;
+    const height = 750;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
 
-    const brandName = channelMeta?.name || platformKey;
-    const brandColor = channelMeta?.color || '#8B5CF6';
-    const workspaceName = activeWorkspace?.name || 'il tuo Brand';
+    const token = localStorage.getItem('nonposto_auth_token') || '';
+    const isMetaFamily = ['facebook', 'instagram', 'threads', 'instagram_direct'].includes(platformKey);
 
-    let popup;
-    if (channelMeta?.oauthGroup === 'meta') {
-      // LIVE META OAUTH (Facebook, Instagram, Threads)
-      const token = localStorage.getItem('nonposto_auth_token') || '';
+    if (isMetaFamily) {
       const startUrl = `/api/oauth/meta/start?channel_id=${channelData.id}&platform=${platformKey}&token=${encodeURIComponent(token)}`;
-      popup = window.open(
+      window.open(
         startUrl,
         `oauth_${platformKey}`,
         `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,status=no,scrollbars=yes`
       );
     } else {
-      // Fallback simulated OAuth for other platforms
-      popup = window.open(
-        'about:blank',
+      // Fallback for non-Meta platforms
+      const startUrl = `/api/oauth/${platformKey}/start?channel_id=${channelData.id}&token=${encodeURIComponent(token)}`;
+      window.open(
+        startUrl,
         `oauth_${platformKey}`,
         `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,status=no,scrollbars=yes`
       );
-
-      if (popup) {
-        popup.document.write(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Accesso ${brandName}</title>
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #f8f9fa;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                min-height: 100vh;
-                padding: 32px;
-                color: #1a1a2e;
-              }
-              .oauth-card {
-                background: white;
-                border-radius: 16px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.08);
-                padding: 40px 36px;
-                max-width: 420px;
-                width: 100%;
-                text-align: center;
-              }
-              .brand-icon {
-                width: 64px; height: 64px; border-radius: 16px;
-                background: ${brandColor};
-                display: flex; align-items: center; justify-content: center;
-                margin: 0 auto 20px; color: white; font-size: 28px; font-weight: bold;
-              }
-              h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #111; }
-              p { font-size: 14px; color: #666; line-height: 1.5; margin-bottom: 24px; }
-              .permissions {
-                background: #f0f4ff; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left;
-              }
-              .permissions h4 { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 8px; }
-              .perm-item {
-                display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: #555;
-              }
-              .perm-item::before { content: '✓'; color: ${brandColor}; font-weight: bold; }
-              .spinner {
-                width: 40px; height: 40px;
-                border: 3px solid #e0e0e0; border-top: 3px solid ${brandColor};
-                border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
-              }
-              @keyframes spin { to { transform: rotate(360deg); } }
-              .success-icon {
-                width: 56px; height: 56px; border-radius: 50%; background: #22c55e;
-                display: flex; align-items: center; justify-content: center;
-                margin: 0 auto 16px; color: white; font-size: 28px;
-              }
-              .btn-authorize {
-                width: 100%; padding: 14px 24px; background: ${brandColor}; color: white;
-                border: none; border-radius: 12px; font-size: 15px; font-weight: 600;
-                cursor: pointer; transition: all 0.2s;
-              }
-              .btn-authorize:hover { filter: brightness(1.1); transform: translateY(-1px); }
-              .btn-authorize:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-              .footer-text { font-size: 11px; color: #999; margin-top: 16px; }
-              .phase-connecting, .phase-success { display: none; }
-              .phase-connecting.active, .phase-success.active, .phase-auth.active { display: block; }
-            </style>
-          </head>
-          <body>
-            <div class="oauth-card">
-              <div id="phase-auth" class="phase-auth active">
-                <div class="brand-icon">${brandName.charAt(0).toUpperCase()}</div>
-                <h2>Accedi a ${brandName}</h2>
-                <p>Autorizza <strong>NonPosto.io</strong> ad accedere al tuo account ${brandName} per pubblicare contenuti per conto di <strong>${workspaceName}</strong>.</p>
-                <div class="permissions">
-                  <h4>NonPosto.io richiede i permessi per:</h4>
-                  <div class="perm-item">Pubblicare contenuti sul tuo profilo</div>
-                  <div class="perm-item">Leggere le informazioni del tuo account</div>
-                  <div class="perm-item">Gestire i post programmati</div>
-                </div>
-                <button class="btn-authorize" id="btn-auth" onclick="authorize()">
-                  Autorizza e Collega
-                </button>
-                <div class="footer-text">Accedendo, accetti i termini di servizio di NonPosto.io</div>
-              </div>
-              <div id="phase-connecting" class="phase-connecting">
-                <div class="spinner"></div>
-                <h2>Collegamento in corso...</h2>
-                <p>Stiamo collegando il tuo account ${brandName}. Attendi qualche secondo.</p>
-              </div>
-              <div id="phase-success" class="phase-success">
-                <div class="success-icon">✓</div>
-                <h2>Account Collegato!</h2>
-                <p>Il tuo account ${brandName} è stato collegato con successo a <strong>${workspaceName}</strong>.</p>
-              </div>
-            </div>
-            <script>
-              function authorize() {
-                document.getElementById('btn-auth').disabled = true;
-                document.getElementById('phase-auth').classList.remove('active');
-                document.getElementById('phase-connecting').classList.add('active');
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'oauth_connecting', platform: '${platformKey}' }, '*');
-                }
-                setTimeout(function() {
-                  document.getElementById('phase-connecting').classList.remove('active');
-                  document.getElementById('phase-success').classList.add('active');
-                  if (window.opener) {
-                    window.opener.postMessage({ type: 'oauth_success', platform: '${platformKey}' }, '*');
-                  }
-                  setTimeout(function() { window.close(); }, 1800);
-                }, 2200);
-              }
-            </script>
-          </body>
-          </html>
-        `);
-        popup.document.close();
-      }
     }
-
-    // Listen for messages from popup
-    const handleMessage = async (event) => {
-      if (event.data?.type === 'oauth_success' && (event.data?.platform === platformKey || !event.data?.platform)) {
-        window.removeEventListener('message', handleMessage);
-
-        if (channelMeta?.oauthGroup === 'meta') {
-          // Real Live Meta OAuth already persisted in backend
-          setConnectSuccess(platformKey);
-          if (onRefreshChannels) await onRefreshChannels();
-          timerRef.current = setTimeout(() => setConnectSuccess(null), 3000);
-          setConnectingPlatform(null);
-          return;
-        }
-
-        try {
-          const res = await fetch(`/api/channels/${channelData.id}/oauth-login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              account_name: activeWorkspace?.name || 'Account',
-              handle: `@${(activeWorkspace?.name || 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
-              avatar_url: '',
-              platform: platformKey
-            })
-          });
-
-          const data = await res.json();
-          if (data.success) {
-            setConnectSuccess(platformKey);
-            if (onRefreshChannels) await onRefreshChannels();
-            timerRef.current = setTimeout(() => setConnectSuccess(null), 3000);
-          } else {
-            alert(data.error || 'Errore durante il collegamento.');
-          }
-        } catch (err) {
-          alert('Errore di connessione con il server.');
-        }
-
-        setConnectingPlatform(null);
-      } else if (event.data?.type === 'oauth_error') {
-        window.removeEventListener('message', handleMessage);
-        setConnectingPlatform(null);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-
-    // Poll for popup closed without authorizing
-    const pollClosed = setInterval(() => {
-      if (popup && popup.closed) {
-        clearInterval(pollClosed);
-        setConnectingPlatform(null);
-        window.removeEventListener('message', handleMessage);
-      }
-    }, 500);
   };
 
-  const handleDisconnect = async (channelId, platformKey) => {
-    if (!confirm('Sei sicuro di voler scollegare questo canale?')) return;
-    setDisconnecting(platformKey);
+  const handleTogglePreselected = async (channelId, currentVal, e) => {
+    e.stopPropagation();
     try {
-      const res = await fetch(`/api/channels/${channelId}/disconnect`, { method: 'POST' });
-      const data = await res.json();
-      if (data.success && onRefreshChannels) await onRefreshChannels();
+      const newVal = currentVal ? 0 : 1;
+      await fetch(`/api/channels/${channelId}/preselected`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_preselected: newVal })
+      });
+      if (onRefreshChannels) onRefreshChannels();
     } catch (err) {
-      alert('Errore durante la disconnessione.');
-    } finally {
-      setDisconnecting(null);
+      console.error('Toggle preselected error:', err);
     }
   };
 
-  const connectedCount = channels.filter(c => c.active === 1 && c.account_name).length;
-  const configuredCount = Object.values(oauthStatus).filter(Boolean).length;
-
-  const toggleSecret = (key) => {
-    setShowSecrets(prev => ({ ...prev, [key]: !prev[key] }));
+  const handleChannelAction = async (channelId, action) => {
+    if (action === 'unlink' && !confirm('Sei sicuro di voler scollegare questo canale?')) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/channels/${channelId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (onRefreshChannels) onRefreshChannels();
+        if (action === 'unlink') {
+          setView('list');
+          setSelectedChannel(null);
+        } else {
+          setSelectedChannel(data.channel);
+        }
+      } else {
+        alert(data.error || 'Errore durante l\'azione sul canale.');
+      }
+    } catch (err) {
+      alert('Errore: ' + err.message);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  // ---------- ADMIN CONFIG PANEL ----------
-  const renderAdminPanel = () => (
-    <form onSubmit={handleSaveMasterSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ 
-        background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.06))', 
-        border: '1px solid rgba(139, 92, 246, 0.25)', 
-        borderRadius: 12, padding: '14px 18px' 
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <ShieldCheck size={18} color="#10B981" />
-          <strong style={{ fontSize: '0.9rem', color: '#F1F5F9' }}>Configurazione OAuth (Admin)</strong>
+  const getPlatformBadgeColor = (platform) => {
+    switch (platform) {
+      case 'facebook': return '#1877F2';
+      case 'instagram': return '#E1306C';
+      case 'threads': return '#000000';
+      case 'tiktok': return '#000000';
+      case 'youtube': return '#FF0000';
+      case 'x': return '#000000';
+      case 'linkedin': return '#0A66C2';
+      case 'google_business': return '#4285F4';
+      default: return '#64748B';
+    }
+  };
+
+  const getPlatformBadgeIcon = (platform) => {
+    switch (platform) {
+      case 'facebook': return 'f';
+      case 'instagram': return '📷';
+      case 'threads': return '@';
+      case 'tiktok': return '♪';
+      case 'youtube': return '▶';
+      case 'x': return '𝕏';
+      case 'linkedin': return 'in';
+      case 'google_business': return 'G';
+      default: return '•';
+    }
+  };
+
+  const calculateDaysRemaining = (expiresAt) => {
+    if (!expiresAt) return 60;
+    try {
+      const exp = new Date(expiresAt).getTime();
+      const diff = exp - Date.now();
+      const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+      return days > 0 ? days : 0;
+    } catch (e) {
+      return 60;
+    }
+  };
+
+  const formatItalianDate = (dateStr) => {
+    if (!dateStr) return 'tra 60 giorni';
+    try {
+      const d = new Date(dateStr);
+      const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+      return d.toLocaleDateString('it-IT', options);
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const connectedChannels = channels.filter(c => c.active === 1 && c.account_name);
+
+  // =========================================================================
+  // VIEW 1: I TUOI CANALI (Pubblie Channel List)
+  // =========================================================================
+  const renderChannelList = () => (
+    <div className="pubblie-channels-container">
+      <div className="pubblie-header-row">
+        <div>
+          <h2 className="pubblie-title">Canali</h2>
+          <div className="pubblie-counter-sub">
+            Hai associato {connectedChannels.length} canali
+          </div>
         </div>
-        <p style={{ fontSize: '0.78rem', color: '#94A3B8', margin: 0, lineHeight: 1.4 }}>
-          Inserisci le credenziali delle App sviluppatore. Fatto una sola volta, tutti gli utenti potranno collegare i canali.
+        <button 
+          className="pubblie-btn-new-channel"
+          onClick={() => setView('add')}
+        >
+          <Plus size={16} />
+          <span>Associa un nuovo canale</span>
+        </button>
+      </div>
+
+      <div className="pubblie-section-title">I tuoi canali</div>
+
+      {connectedChannels.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '48px 24px',
+          background: '#111827',
+          border: '1px dashed #1F2937',
+          borderRadius: 14,
+          color: '#94A3B8'
+        }}>
+          <Share2 size={40} color="#3B82F6" style={{ margin: '0 auto 14px', opacity: 0.8 }} />
+          <h3 style={{ color: '#F8FAFC', fontSize: '1.1rem', marginBottom: 6 }}>Nessun canale ancora collegato</h3>
+          <p style={{ fontSize: '0.86rem', maxWidth: 420, margin: '0 auto 20px', lineHeight: 1.5 }}>
+            Collega almeno un canale social al tuo progetto per iniziare a programmare e pubblicare contenuti.
+          </p>
+          <button 
+            className="pubblie-btn-new-channel" 
+            onClick={() => setView('add')}
+            style={{ background: '#2563EB', color: 'white', borderColor: '#2563EB' }}
+          >
+            <Plus size={16} />
+            <span>Collega il tuo primo canale</span>
+          </button>
+        </div>
+      ) : (
+        <div>
+          {connectedChannels.map(ch => {
+            const daysLeft = calculateDaysRemaining(ch.token_expires_at);
+            const isPreselected = ch.is_preselected !== 0;
+
+            return (
+              <div key={ch.id} className="pubblie-channel-row">
+                {/* Left: Avatar with small platform overlay badge */}
+                <div className="pubblie-channel-left">
+                  <div className="pubblie-avatar-wrap">
+                    {ch.avatar_url ? (
+                      <img 
+                        src={ch.avatar_url} 
+                        alt={ch.account_name} 
+                        className="pubblie-avatar-img"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                      />
+                    ) : null}
+                    <div className="pubblie-avatar-fallback" style={{ display: ch.avatar_url ? 'none' : 'flex' }}>
+                      {ch.account_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div 
+                      className="pubblie-badge-overlay"
+                      style={{ background: getPlatformBadgeColor(ch.platform) }}
+                    >
+                      {getPlatformBadgeIcon(ch.platform)}
+                    </div>
+                  </div>
+
+                  <div className="pubblie-channel-info">
+                    <div className="pubblie-channel-name">{ch.account_name}</div>
+                    <div className="pubblie-channel-type">
+                      {ch.channel_type || (ch.platform === 'facebook' ? 'Facebook • pagina' : ch.platform === 'instagram' ? 'Instagram via Facebook • business' : `${ch.platform} • profilo`)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Center: Token expiration text identical to Pubblie */}
+                <div className="pubblie-channel-center">
+                  <div className="pubblie-expiry-text">
+                    L'associazione al canale scadrà tra {daysLeft} giorni
+                  </div>
+                  <div className="pubblie-reconnect-date">
+                    Riconnetti entro {formatItalianDate(ch.token_expires_at)}
+                  </div>
+                </div>
+
+                {/* Right: Switch Preselezionato + Settings button */}
+                <div className="pubblie-channel-right">
+                  <label className="pubblie-preselect-label">
+                    <div className="pubblie-switch">
+                      <input 
+                        type="checkbox" 
+                        checked={isPreselected}
+                        onChange={(e) => handleTogglePreselected(ch.id, isPreselected, e)}
+                      />
+                      <span className="pubblie-slider"></span>
+                    </div>
+                    <span>Preselezionato su nuovo post</span>
+                  </label>
+
+                  <button 
+                    className="pubblie-btn-gear"
+                    title="Dettaglio e configurazione canale"
+                    onClick={() => {
+                      setSelectedChannel(ch);
+                      setView('detail');
+                    }}
+                  >
+                    <Sliders size={15} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  // =========================================================================
+  // VIEW 2: ASSOCIA UN CANALE AL TUO PROGETTO (Pubblie Provider Grid)
+  // =========================================================================
+  const renderAddChannelView = () => (
+    <div>
+      <div className="pubblie-add-header">
+        <h2 className="pubblie-add-title">Associa un canale al tuo progetto</h2>
+        <p className="pubblie-add-subtitle">
+          Collega almeno un canale al tuo progetto per iniziare a pubblicare.
         </p>
       </div>
 
+      <div className="pubblie-provider-grid">
+        {PROVIDERS.map(prov => {
+          const isConnecting = connectingPlatform === prov.key || (prov.isInstagram && connectingPlatform?.startsWith('instagram'));
+
+          return (
+            <button 
+              key={prov.key}
+              className="pubblie-provider-item"
+              disabled={isConnecting}
+              onClick={() => {
+                if (prov.isInstagram) {
+                  setView('instagram_choice');
+                } else {
+                  handleConnect(prov.key);
+                }
+              }}
+            >
+              <div 
+                className="pubblie-provider-circle"
+                style={{ background: prov.color }}
+              >
+                {isConnecting ? (
+                  <RefreshCw size={24} className="spinning" />
+                ) : (
+                  <span>{prov.iconText}</span>
+                )}
+              </div>
+              <div className="pubblie-provider-name">{prov.name}</div>
+              <div className="pubblie-provider-desc">{prov.desc}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <button className="pubblie-btn-back" onClick={() => setView('list')}>
+        Torna indietro
+      </button>
+    </div>
+  );
+
+  // =========================================================================
+  // VIEW 3: INSTAGRAM DUAL CHOICE MODAL (Via Facebook vs Collegamento Diretto)
+  // =========================================================================
+  const renderInstagramChoiceModal = () => (
+    <div className="pubblie-dialog-box">
+      {!showDirectDisclaimer ? (
+        <>
+          <h3 className="pubblie-dialog-title">Instagram</h3>
+          <p className="pubblie-dialog-desc">Come vuoi collegare il tuo account Instagram?</p>
+
+          <div className="pubblie-dialog-options">
+            {/* Option 1: Via Facebook */}
+            <button 
+              className="pubblie-dialog-option"
+              onClick={() => handleConnect('instagram')}
+            >
+              <div className="pubblie-dialog-circle" style={{ background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)' }}>
+                <span style={{ fontSize: 28 }}>📷</span>
+                <div style={{
+                  position: 'absolute', bottom: -2, right: -2, width: 22, height: 22,
+                  borderRadius: '50%', background: '#1877F2', border: '2px solid #111827',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white',
+                  fontSize: 12, fontWeight: 'bold'
+                }}>f</div>
+              </div>
+              <div className="pubblie-dialog-opt-title">Instagram</div>
+              <div className="pubblie-dialog-opt-sub">Collega tramite Facebook</div>
+            </button>
+
+            {/* Option 2: Collegamento Diretto */}
+            <button 
+              className="pubblie-dialog-option"
+              onClick={() => setShowDirectDisclaimer(true)}
+            >
+              <div className="pubblie-dialog-circle" style={{ background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)' }}>
+                <span style={{ fontSize: 28 }}>📷</span>
+              </div>
+              <div className="pubblie-dialog-opt-title">Instagram</div>
+              <div className="pubblie-dialog-opt-sub">Collegamento diretto</div>
+            </button>
+          </div>
+
+          <button className="pubblie-btn-back" onClick={() => setView('add')}>
+            Annulla
+          </button>
+        </>
+      ) : (
+        /* Requirements Disclaimer identical to Pubblie screenshot */
+        <div style={{ textAlign: 'left' }}>
+          <h3 className="pubblie-dialog-title" style={{ textAlign: 'left', marginBottom: 16 }}>Instagram</h3>
+          <ul style={{ fontSize: '0.84rem', color: '#CBD5E1', paddingLeft: 18, lineHeight: 1.6, marginBottom: 24 }}>
+            <li style={{ marginBottom: 8 }}>L'account Instagram deve essere Business o Creator e collegato ad una pagina Facebook di cui sei amministratore</li>
+            <li style={{ marginBottom: 8 }}>Ti verrà richiesto di accedere a Facebook/Instagram per associare l'account Instagram</li>
+            <li>Le storie possono essere pubblicate in automatico solamente da un account Business</li>
+          </ul>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button 
+              className="btn-secondary" 
+              onClick={() => setShowDirectDisclaimer(false)}
+              style={{ padding: '8px 16px', fontSize: '0.82rem' }}
+            >
+              Annulla
+            </button>
+            <button 
+              className="btn-primary" 
+              onClick={() => handleConnect('instagram_direct')}
+              style={{ padding: '8px 20px', fontSize: '0.82rem', background: '#2563EB' }}
+            >
+              Conferma
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // =========================================================================
+  // VIEW 4: CHANNEL DETAIL VIEW (Pubblie Channel Configuration)
+  // =========================================================================
+  const renderChannelDetailView = () => {
+    if (!selectedChannel) return null;
+    const isAct = selectedChannel.active === 1 && selectedChannel.status !== 'disabled';
+
+    return (
+      <div className="pubblie-detail-container">
+        <div className="pubblie-detail-top">
+          <button className="pubblie-btn-back-arrow" onClick={() => setView('list')}>
+            <ArrowLeft size={16} />
+            <span>TORNA INDIETRO</span>
+          </button>
+          <div style={{ fontSize: '0.82rem', color: '#64748B' }}>
+            ID Canale: <strong>#{selectedChannel.id}</strong>
+          </div>
+        </div>
+
+        {/* Channel Header Card */}
+        <div className="pubblie-detail-header-card">
+          <div className="pubblie-avatar-wrap" style={{ width: 50, height: 50 }}>
+            {selectedChannel.avatar_url ? (
+              <img src={selectedChannel.avatar_url} alt="" className="pubblie-avatar-img" style={{ width: 50, height: 50 }} />
+            ) : (
+              <div className="pubblie-avatar-fallback" style={{ width: 50, height: 50 }}>
+                {selectedChannel.account_name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div 
+              className="pubblie-badge-overlay" 
+              style={{ background: getPlatformBadgeColor(selectedChannel.platform), width: 20, height: 20 }}
+            >
+              {getPlatformBadgeIcon(selectedChannel.platform)}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#F8FAFC' }}>
+              {selectedChannel.account_name}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginTop: 2 }}>
+              {selectedChannel.channel_type || `${selectedChannel.platform} • profilo`}
+            </div>
+          </div>
+        </div>
+
+        {/* Layout: Form on Left, Action Buttons on Right */}
+        <div className="pubblie-detail-layout">
+          <div className="pubblie-detail-form">
+            <div className="pubblie-field-group">
+              <label className="pubblie-field-label">Social ID</label>
+              <input type="text" readOnly className="pubblie-field-input" value={selectedChannel.social_id || selectedChannel.id} />
+            </div>
+
+            <div className="pubblie-field-group">
+              <label className="pubblie-field-label">Social Username</label>
+              <input type="text" readOnly className="pubblie-field-input" value={selectedChannel.handle || '@' + selectedChannel.account_name} />
+            </div>
+
+            <div className="pubblie-field-group">
+              <label className="pubblie-field-label">Social Name</label>
+              <input type="text" readOnly className="pubblie-field-input" value={selectedChannel.account_name} />
+            </div>
+
+            <div className="pubblie-field-group">
+              <label className="pubblie-field-label">Data Scadenza</label>
+              <input type="text" readOnly className="pubblie-field-input" value={selectedChannel.token_expires_at ? new Date(selectedChannel.token_expires_at).toLocaleString('it-IT') : '60 giorni dalla connessione'} />
+            </div>
+
+            <div className="pubblie-field-group">
+              <label className="pubblie-field-label">Data Aggiornamento Token</label>
+              <input type="text" readOnly className="pubblie-field-input" value={selectedChannel.token_updated_at ? new Date(selectedChannel.token_updated_at).toLocaleString('it-IT') : new Date().toLocaleString('it-IT')} />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+              <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>Stato canale:</span>
+              <span style={{
+                fontSize: '0.75rem', fontWeight: 600, padding: '3px 10px', borderRadius: 6,
+                background: isAct ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                color: isAct ? '#34D399' : '#F87171'
+              }}>
+                {isAct ? '✓ attivo' : 'non abilitato'}
+              </span>
+            </div>
+          </div>
+
+          <div className="pubblie-detail-actions">
+            <button 
+              className="pubblie-btn-reconnect"
+              onClick={() => handleConnect(selectedChannel.platform)}
+              disabled={actionLoading}
+            >
+              Riconnetti canale
+            </button>
+
+            <button 
+              className="pubblie-btn-disable"
+              onClick={() => handleChannelAction(selectedChannel.id, isAct ? 'disable' : 'enable')}
+              disabled={actionLoading}
+            >
+              {isAct ? 'Disabilita canale' : 'Abilita canale'}
+            </button>
+
+            <button 
+              className="pubblie-btn-unlink"
+              onClick={() => handleChannelAction(selectedChannel.id, 'unlink')}
+              disabled={actionLoading}
+            >
+              Scollega canale
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // =========================================================================
+  // VIEW 5: MASTER OAUTH SETTINGS (Admin Panel)
+  // =========================================================================
+  const renderAdminPanel = () => (
+    <form onSubmit={handleSaveMasterSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 10, borderBottom: '1px solid #1E293B' }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#F1F5F9', display: 'flex', alignItems: 'center', gap: 8 }}>
+            Impostazioni Master OAuth
+          </h3>
+          <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#94A3B8' }}>
+            Inserisci le credenziali Master per abilitare la connessione 1-clic su Meta, Threads, Google, LinkedIn.
+          </p>
+        </div>
+        <button type="button" className="btn-secondary" onClick={() => setView('list')} style={{ fontSize: '0.78rem', padding: '6px 14px' }}>
+          ← Torna ai Canali
+        </button>
+      </div>
+
       {masterSaveSuccess && (
-        <div style={{ padding: '10px 14px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 8, color: '#34D399', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CheckCircle2 size={16} />
-          Credenziali salvate con successo!
+        <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10B981', color: '#34D399', padding: '8px 14px', borderRadius: 8, fontSize: '0.8rem' }}>
+          ✓ Credenziali salvate con successo!
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        {/* Meta */}
-        {renderOAuthGroup('Meta (Facebook e Instagram)', '#1877F2', [
-          { key: 'oauth_meta_app_id', label: 'App ID' },
-          { key: 'oauth_meta_app_secret', label: 'App Secret', secret: true },
-          { key: 'oauth_meta_config_id', label: 'ID Configurazione (Facebook Login for Business)' }
-        ])}
-        {/* Threads */}
-        {renderOAuthGroup('Threads (Threads API)', '#000000', [
-          { key: 'oauth_threads_app_id', label: 'App ID (lascia vuoto per usare Meta)' },
-          { key: 'oauth_threads_app_secret', label: 'App Secret (lascia vuoto per usare Meta)', secret: true }
-        ])}
-        {/* Google */}
-        {renderOAuthGroup('Google (YouTube, Business)', '#4285F4', [
-          { key: 'oauth_google_client_id', label: 'Client ID' },
-          { key: 'oauth_google_client_secret', label: 'Client Secret', secret: true }
-        ])}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+        {/* Meta (Facebook & Instagram) */}
+        <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 10, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#1877F2' }} />
+            <strong style={{ fontSize: '0.82rem', color: '#E2E8F0' }}>Meta (Facebook & Instagram)</strong>
+          </div>
+          <div className="form-group" style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Meta App ID:</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              value={masterSettings.oauth_meta_app_id} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_meta_app_id: e.target.value })} 
+              placeholder="es. 4357198247645591" 
+            />
+          </div>
+          <div className="form-group">
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Meta App Secret:</label>
+            <input 
+              type="password" 
+              className="input-field" 
+              value={masterSettings.oauth_meta_app_secret} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_meta_app_secret: e.target.value })} 
+              placeholder="••••••••" 
+            />
+          </div>
+        </div>
+
+        {/* Threads Dedicated */}
+        <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 10, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#FFFFFF' }} />
+            <strong style={{ fontSize: '0.82rem', color: '#E2E8F0' }}>Threads (Dedicated App)</strong>
+          </div>
+          <div className="form-group" style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Threads App ID:</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              value={masterSettings.oauth_threads_app_id} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_threads_app_id: e.target.value })} 
+              placeholder="es. 1157237705496938" 
+            />
+          </div>
+          <div className="form-group">
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Threads App Secret:</label>
+            <input 
+              type="password" 
+              className="input-field" 
+              value={masterSettings.oauth_threads_app_secret} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_threads_app_secret: e.target.value })} 
+              placeholder="••••••••" 
+            />
+          </div>
+        </div>
+
+        {/* Google Cloud */}
+        <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 10, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#EA4335' }} />
+            <strong style={{ fontSize: '0.82rem', color: '#E2E8F0' }}>Google (YouTube & My Business)</strong>
+          </div>
+          <div className="form-group" style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Client ID:</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              value={masterSettings.oauth_google_client_id} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_google_client_id: e.target.value })} 
+            />
+          </div>
+          <div className="form-group">
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Client Secret:</label>
+            <input 
+              type="password" 
+              className="input-field" 
+              value={masterSettings.oauth_google_client_secret} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_google_client_secret: e.target.value })} 
+            />
+          </div>
+        </div>
+
         {/* LinkedIn */}
-        {renderOAuthGroup('LinkedIn', '#0A66C2', [
-          { key: 'oauth_linkedin_client_id', label: 'Client ID' },
-          { key: 'oauth_linkedin_client_secret', label: 'Client Secret', secret: true }
-        ])}
-        {/* TikTok */}
-        {renderOAuthGroup('TikTok', '#25F4EE', [
-          { key: 'oauth_tiktok_client_key', label: 'Client Key' },
-          { key: 'oauth_tiktok_client_secret', label: 'Client Secret', secret: true }
-        ])}
-        {/* X */}
-        {renderOAuthGroup('X (Twitter)', '#71717A', [
-          { key: 'oauth_x_client_id', label: 'Client ID' },
-          { key: 'oauth_x_client_secret', label: 'Client Secret', secret: true }
-        ])}
+        <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 10, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#0A66C2' }} />
+            <strong style={{ fontSize: '0.82rem', color: '#E2E8F0' }}>LinkedIn Portal</strong>
+          </div>
+          <div className="form-group" style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Client ID:</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              value={masterSettings.oauth_linkedin_client_id} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_linkedin_client_id: e.target.value })} 
+            />
+          </div>
+          <div className="form-group">
+            <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Client Secret:</label>
+            <input 
+              type="password" 
+              className="input-field" 
+              value={masterSettings.oauth_linkedin_client_secret} 
+              onChange={e => setMasterSettings({ ...masterSettings, oauth_linkedin_client_secret: e.target.value })} 
+            />
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-        <button type="button" className="btn-secondary" onClick={() => setShowAdminPanel(false)} style={{ fontSize: '0.8rem', padding: '6px 14px' }}>
-          ← Torna ai Canali
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+        <button type="button" className="btn-secondary" onClick={() => setView('list')} style={{ padding: '8px 16px', fontSize: '0.84rem' }}>
+          Annulla
         </button>
-        <button type="submit" className="btn-primary" disabled={isSavingMaster} style={{ padding: '8px 18px', fontSize: '0.84rem' }}>
+        <button type="submit" className="btn-primary" disabled={isSavingMaster} style={{ padding: '8px 20px', fontSize: '0.84rem' }}>
           <Check size={15} />
-          <span>{isSavingMaster ? 'Salvataggio...' : 'Salva Configurazione'}</span>
+          <span>{isSavingMaster ? 'Salvataggio...' : 'Salva Impostazioni'}</span>
         </button>
       </div>
     </form>
   );
 
-  const renderOAuthGroup = (title, dotColor, fields) => (
-    <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 10, padding: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: dotColor }} />
-        <strong style={{ fontSize: '0.78rem', color: '#E2E8F0' }}>{title}</strong>
-      </div>
-      {fields.map(field => (
-        <div key={field.key} className="form-group" style={{ marginBottom: field === fields[fields.length - 1] ? 0 : 6 }}>
-          <label style={{ fontSize: '0.7rem', color: '#94A3B8' }}>{field.label}:</label>
-          <div style={{ position: 'relative' }}>
-            <input
-              type={field.secret && !showSecrets[field.key] ? 'password' : 'text'}
-              className="input-field"
-              placeholder={field.secret ? '••••••••' : 'Inserisci...'}
-              value={masterSettings[field.key]}
-              onChange={(e) => setMasterSettings({ ...masterSettings, [field.key]: e.target.value })}
-              style={{ paddingRight: field.secret ? 32 : 10 }}
-            />
-            {field.secret && (
-              <button
-                type="button"
-                onClick={() => toggleSecret(field.key)}
-                style={{
-                  position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 2
-                }}
-              >
-                {showSecrets[field.key] ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  // ---------- CHANNEL LIST ----------
-  const renderChannelList = () => (
-    <>
-      <p style={{ fontSize: '0.84rem', color: '#94A3B8', marginBottom: 16, lineHeight: 1.5 }}>
-        Collega i tuoi profili social per pubblicare contenuti da <strong style={{ color: '#CBD5E1' }}>NonPosto.io</strong>.
-        {loadingOauth ? '' : configuredCount === 0 ? (
-          <span style={{ color: '#F59E0B' }}> ⚠ Nessuna piattaforma OAuth configurata{isAdmin ? '.' : ' dall\'amministratore.'}</span>
-        ) : (
-          <span style={{ color: '#6EE7B7' }}> {configuredCount} piattaform{configuredCount === 1 ? 'a' : 'e'} pronte per la connessione.</span>
-        )}
-      </p>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {CHANNELS.map((ch) => {
-          const channelData = getChannelData(ch.key);
-          const isConnected = channelData?.active === 1 && channelData?.account_name;
-          const isConnecting = connectingPlatform === ch.key;
-          const justConnected = connectSuccess === ch.key;
-          const isDisconnecting = disconnecting === ch.key;
-          const oauthReady = oauthStatus[ch.key] === true;
-
-          return (
-            <div 
-              key={ch.key}
-              className="channel-row-card"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 14,
-                padding: '12px 16px',
-                background: isConnected ? 'rgba(16, 185, 129, 0.04)' : 'var(--bg-card)',
-                border: `1px solid ${isConnected ? 'rgba(16, 185, 129, 0.25)' : justConnected ? 'rgba(16, 185, 129, 0.5)' : 'var(--border-subtle)'}`,
-                borderRadius: 12,
-                transition: 'all 0.25s ease',
-                opacity: !oauthReady && !isConnected ? 0.55 : 1
-              }}
-            >
-              {/* Platform Icon */}
-              <div style={{ 
-                width: 42, height: 42, borderRadius: 10, backgroundColor: ch.color, 
-                border: ch.borderColor ? `1px solid ${ch.borderColor}` : 'none',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                color: 'white', fontSize: '1.2rem', fontWeight: 'bold', flexShrink: 0,
-                boxShadow: `0 2px 10px ${ch.color}30`
-              }}>
-                <span>{ch.icon || ch.name.charAt(0)}</span>
-              </div>
-
-              {/* Platform Info */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: '0.92rem', fontWeight: 600, color: '#F1F5F9' }}>{ch.name}</span>
-                </div>
-                <span style={{ fontSize: '0.75rem', color: isConnected ? '#6EE7B7' : '#64748B' }}>
-                  {isConnected 
-                    ? `${channelData.account_name}${channelData.handle ? ` · ${channelData.handle}` : ''}` 
-                    : !oauthReady 
-                      ? 'OAuth non configurato'
-                      : ch.desc
-                  }
-                </span>
-              </div>
-
-              {/* Status & Action */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                {isConnected ? (
-                  <>
-                    <span style={{ 
-                      display: 'flex', alignItems: 'center', gap: 5,
-                      fontSize: '0.75rem', color: '#34D399', fontWeight: 600,
-                      padding: '4px 10px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: 8
-                    }}>
-                      <Wifi size={13} /> Collegato
-                    </span>
-                    <button
-                      onClick={() => handleDisconnect(channelData.id, ch.key)}
-                      disabled={isDisconnecting}
-                      className="btn-disconnect-channel"
-                    >
-                      {isDisconnecting ? <RefreshCw size={13} className="spinning" /> : <LogOut size={13} />}
-                      {isDisconnecting ? '...' : 'Scollega'}
-                    </button>
-                  </>
-                ) : justConnected ? (
-                  <span style={{ 
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    fontSize: '0.8rem', color: '#22C55E', fontWeight: 600,
-                    padding: '6px 14px', background: 'rgba(34, 197, 94, 0.12)',
-                    border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 10
-                  }}>
-                    <CheckCircle2 size={16} /> Collegato!
-                  </span>
-                ) : !oauthReady ? (
-                  <span style={{ 
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    fontSize: '0.72rem', color: '#F59E0B', padding: '4px 10px',
-                    background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8
-                  }}>
-                    <AlertTriangle size={12} /> Non configurato
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleConnect(ch.key)}
-                    disabled={isConnecting}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      padding: '8px 18px', background: ch.color, border: 'none',
-                      borderRadius: 10, color: 'white', fontSize: '0.82rem', fontWeight: 600,
-                      cursor: isConnecting ? 'wait' : 'pointer',
-                      opacity: isConnecting ? 0.6 : 1,
-                      transition: 'all 0.2s',
-                      boxShadow: `0 2px 8px ${ch.color}40`,
-                      whiteSpace: 'nowrap'
-                    }}
-                    onMouseOver={(e) => { if (!isConnecting) { e.currentTarget.style.filter = 'brightness(1.15)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
-                    onMouseOut={(e) => { e.currentTarget.style.filter = 'none'; e.currentTarget.style.transform = 'none'; }}
-                  >
-                    {isConnecting ? (
-                      <><RefreshCw size={14} className="spinning" /><span>Collegamento...</span></>
-                    ) : (
-                      <><Link2 size={14} /><span>Collega</span></>
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="standard-modal" style={{ maxWidth: showAdminPanel ? 800 : 720, maxHeight: '88vh' }}>
-        {/* Header */}
+      <div className="standard-modal" style={{ maxWidth: view === 'admin' ? 820 : 800, maxHeight: '90vh' }}>
+        {/* Header Bar */}
         <div className="modal-header">
           <div className="modal-title">
-            <Share2 size={22} color="#8B5CF6" />
-            <span>{showAdminPanel ? 'Configurazione OAuth' : 'Canali Social'}</span>
-            {!showAdminPanel && (
-              <span style={{ 
-                fontSize: '0.72rem', 
-                background: connectedCount > 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.12)', 
-                color: connectedCount > 0 ? '#34D399' : '#94A3B8', 
-                padding: '3px 10px', borderRadius: 999, fontWeight: 600, marginLeft: 4
-              }}>
-                {connectedCount}/{CHANNELS.length} collegati
-              </span>
-            )}
+            <Share2 size={22} color="#3B82F6" />
+            <span>
+              {view === 'admin' ? 'Configurazione Master OAuth' : (view === 'add' ? 'Aggiungi Canale' : (view === 'detail' ? 'Dettaglio Canale' : 'Canali'))}
+            </span>
           </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button 
               className="btn-secondary" 
@@ -703,34 +895,37 @@ export default function ChannelsModal({
             >
               <Activity size={13} /> Log & Diagnostica
             </button>
-            {isAdmin && !showAdminPanel && (
+
+            {isAdmin && view !== 'admin' && (
               <button 
                 className="btn-secondary" 
-                onClick={() => setShowAdminPanel(true)}
+                onClick={() => setView('admin')}
                 style={{ fontSize: '0.75rem', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
               >
                 <Settings size={13} /> OAuth Config
               </button>
             )}
+
             <button className="modal-close-btn" onClick={onClose}>
               <X size={20} />
             </button>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="modal-content-scroll" style={{ padding: '20px 24px' }}>
-          {showAdminPanel && isAdmin ? renderAdminPanel() : renderChannelList()}
+        {/* Content Body */}
+        <div className="modal-content-scroll" style={{ padding: '24px 28px' }}>
+          {view === 'admin' ? renderAdminPanel() : 
+           view === 'add' ? renderAddChannelView() :
+           view === 'instagram_choice' ? renderInstagramChoiceModal() :
+           view === 'detail' ? renderChannelDetailView() :
+           renderChannelList()}
         </div>
 
         {/* Footer */}
-        {!showAdminPanel && (
+        {view === 'list' && (
           <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-              {connectedCount > 0 
-                ? `${connectedCount} canal${connectedCount === 1 ? 'e' : 'i'} collegat${connectedCount === 1 ? 'o' : 'i'}`
-                : 'Nessun canale collegato'
-              }
+            <span style={{ fontSize: '0.78rem', color: '#64748B' }}>
+              Progetto attivo: <strong style={{ color: '#CBD5E1' }}>{activeWorkspace?.name || 'Workspace'}</strong>
             </span>
             <button className="btn-secondary" onClick={onClose} style={{ padding: '6px 16px', fontSize: '0.82rem' }}>
               Chiudi
@@ -739,7 +934,7 @@ export default function ChannelsModal({
         )}
       </div>
 
-      {/* System Diagnostics & Logs Modal */}
+      {/* System Diagnostics Modal */}
       <LogsModal
         isOpen={showLogsModal}
         onClose={() => setShowLogsModal(false)}

@@ -98,10 +98,24 @@ async function initDb() {
       avatar_url TEXT,
       active INTEGER DEFAULT 1,
       config_json TEXT DEFAULT '{}',
+      token_expires_at DATETIME,
+      is_preselected INTEGER DEFAULT 1,
+      social_id TEXT,
+      channel_type TEXT,
+      status TEXT DEFAULT 'active',
+      token_updated_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE
     )
   `);
+
+  // Migrate channels columns if table already exists
+  try { await run(`ALTER TABLE channels ADD COLUMN token_expires_at DATETIME`); } catch (e) {}
+  try { await run(`ALTER TABLE channels ADD COLUMN is_preselected INTEGER DEFAULT 1`); } catch (e) {}
+  try { await run(`ALTER TABLE channels ADD COLUMN social_id TEXT`); } catch (e) {}
+  try { await run(`ALTER TABLE channels ADD COLUMN channel_type TEXT`); } catch (e) {}
+  try { await run(`ALTER TABLE channels ADD COLUMN status TEXT DEFAULT 'active'`); } catch (e) {}
+  try { await run(`ALTER TABLE channels ADD COLUMN token_updated_at DATETIME`); } catch (e) {}
 
   await run(`
     CREATE TABLE IF NOT EXISTS posts (

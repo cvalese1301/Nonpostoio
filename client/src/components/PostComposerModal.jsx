@@ -94,14 +94,22 @@ export default function PostComposerModal({
         setMediaUrls(extractedMedia);
       }
     } else {
-      // Default new post setup
+      // Default new post setup: auto-preselect channels based on Pubblie style
+      const preselected = (channels || [])
+        .filter(c => c.active === 1 && c.is_preselected !== 0)
+        .map(c => c.platform);
+      if (preselected.length > 0) {
+        setSelectedPlatforms(preselected);
+        setActivePreviewPlatform(preselected[0]);
+      }
+
       const defaultDate = initialDate ? new Date(initialDate) : new Date(Date.now() + 2 * 60 * 60 * 1000);
       defaultDate.setMinutes(0);
       const pad = (n) => String(n).padStart(2, '0');
       const localIso = `${defaultDate.getFullYear()}-${pad(defaultDate.getMonth() + 1)}-${pad(defaultDate.getDate())}T${pad(defaultDate.getHours())}:${pad(defaultDate.getMinutes())}`;
       setScheduledAt(localIso);
     }
-  }, [editingPost, initialDate]);
+  }, [editingPost, initialDate, channels]);
 
   // Toggle channel selection
   const togglePlatform = (platKey) => {

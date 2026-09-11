@@ -1952,4 +1952,574 @@ button, input, textarea, select {
 }
 
 
+/* ============================================================= */
+/* PUBBLIE.IO CLONED CHANNEL MANAGEMENT & PROVIDER UI           */
+/* ============================================================= */
 
+.pubblie-channels-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pubblie-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pubblie-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin: 0;
+}
+
+.pubblie-counter-sub {
+  font-size: 0.9rem;
+  color: #94A3B8;
+  margin-top: 4px;
+}
+
+.pubblie-btn-new-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  background: transparent;
+  border: 1.5px solid #3B82F6;
+  color: #3B82F6;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pubblie-btn-new-channel:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #60A5FA;
+  color: #60A5FA;
+  transform: translateY(-1px);
+}
+
+.pubblie-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #E2E8F0;
+  margin: 16px 0 12px;
+}
+
+/* Pubblie Channel Row */
+.pubblie-channel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  transition: all 0.2s ease;
+}
+
+.pubblie-channel-row:hover {
+  border-color: #374151;
+  background: #131E32;
+}
+
+.pubblie-channel-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pubblie-avatar-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.pubblie-avatar-img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #1F2937;
+}
+
+.pubblie-avatar-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #1E293B;
+  color: #F1F5F9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.pubblie-badge-overlay {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.pubblie-channel-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pubblie-channel-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #F8FAFC;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pubblie-channel-type {
+  font-size: 0.78rem;
+  color: #94A3B8;
+  margin-top: 2px;
+}
+
+.pubblie-channel-center {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 0 20px;
+  flex: 1.2;
+}
+
+.pubblie-expiry-text {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #CBD5E1;
+}
+
+.pubblie-reconnect-date {
+  font-size: 0.73rem;
+  color: #64748B;
+  margin-top: 2px;
+}
+
+.pubblie-channel-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+
+.pubblie-preselect-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #CBD5E1;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Pubblie Pill Switch */
+.pubblie-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+}
+
+.pubblie-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pubblie-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #374151;
+  transition: .25s;
+  border-radius: 34px;
+}
+
+.pubblie-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .25s;
+  border-radius: 50%;
+}
+
+.pubblie-switch input:checked + .pubblie-slider {
+  background-color: #2563EB;
+}
+
+.pubblie-switch input:checked + .pubblie-slider:before {
+  transform: translateX(18px);
+}
+
+.pubblie-btn-gear {
+  background: transparent;
+  border: 1px solid #374151;
+  color: #94A3B8;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pubblie-btn-gear:hover {
+  color: #F8FAFC;
+  border-color: #64748B;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================================= */
+/* ADD CHANNEL GRID VIEW (Associa un canale al tuo progetto)     */
+/* ============================================================= */
+
+.pubblie-add-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.pubblie-add-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin-bottom: 6px;
+}
+
+.pubblie-add-subtitle {
+  font-size: 0.85rem;
+  color: #94A3B8;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.pubblie-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 24px 16px;
+  padding: 10px 0 28px;
+}
+
+@media (max-width: 640px) {
+  .pubblie-provider-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.pubblie-provider-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  border: none;
+  padding: 8px;
+  border-radius: 12px;
+}
+
+.pubblie-provider-item:hover {
+  transform: translateY(-3px);
+}
+
+.pubblie-provider-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 26px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s ease;
+}
+
+.pubblie-provider-item:hover .pubblie-provider-circle {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  filter: brightness(1.1);
+}
+
+.pubblie-provider-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #F8FAFC;
+  margin-bottom: 2px;
+}
+
+.pubblie-provider-desc {
+  font-size: 0.72rem;
+  color: #64748B;
+  line-height: 1.2;
+}
+
+.pubblie-btn-back {
+  background: none;
+  border: none;
+  color: #60A5FA;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  display: block;
+  margin: 16px auto 0;
+}
+
+.pubblie-btn-back:hover {
+  color: #93C5FD;
+}
+
+/* ============================================================= */
+/* INSTAGRAM DUAL-CHOICE MODAL                                   */
+/* ============================================================= */
+
+.pubblie-dialog-box {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 16px;
+  padding: 32px 28px;
+  max-width: 440px;
+  margin: 0 auto;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+}
+
+.pubblie-dialog-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin-bottom: 8px;
+}
+
+.pubblie-dialog-desc {
+  font-size: 0.85rem;
+  color: #94A3B8;
+  margin-bottom: 28px;
+}
+
+.pubblie-dialog-options {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-bottom: 28px;
+}
+
+.pubblie-dialog-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pubblie-dialog-option:hover {
+  transform: translateY(-3px);
+}
+
+.pubblie-dialog-circle {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  margin-bottom: 10px;
+  position: relative;
+  box-shadow: 0 6px 20px rgba(225, 48, 108, 0.3);
+}
+
+.pubblie-dialog-opt-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #F8FAFC;
+  margin-bottom: 2px;
+}
+
+.pubblie-dialog-opt-sub {
+  font-size: 0.72rem;
+  color: #64748B;
+  max-width: 120px;
+  line-height: 1.2;
+}
+
+/* ============================================================= */
+/* CHANNEL DETAIL VIEW                                           */
+/* ============================================================= */
+
+.pubblie-detail-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pubblie-detail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #1F2937;
+}
+
+.pubblie-btn-back-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #94A3B8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pubblie-btn-back-arrow:hover {
+  color: #F8FAFC;
+}
+
+.pubblie-detail-header-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 12px;
+}
+
+.pubblie-detail-layout {
+  display: flex;
+  gap: 24px;
+}
+
+.pubblie-detail-form {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pubblie-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pubblie-field-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pubblie-field-input {
+  background: #0B0F19;
+  border: 1px solid #1F2937;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #94A3B8;
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
+.pubblie-detail-actions {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 18px;
+}
+
+.pubblie-btn-reconnect {
+  width: 100%;
+  padding: 11px 16px;
+  background: #2563EB;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pubblie-btn-reconnect:hover {
+  background: #1D4ED8;
+}
+
+.pubblie-btn-disable {
+  width: 100%;
+  padding: 11px 16px;
+  background: #374151;
+  color: #F1F5F9;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pubblie-btn-disable:hover {
+  background: #4B5563;
+}
+
+.pubblie-btn-unlink {
+  width: 100%;
+  padding: 11px 16px;
+  background: transparent;
+  color: #EF4444;
+  border: 1.5px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pubblie-btn-unlink:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #EF4444;
+}

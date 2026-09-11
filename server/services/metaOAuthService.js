@@ -90,19 +90,27 @@ function resolveRedirectUri(req, customRedirectUri = '') {
  */
 function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, configId }) {
   if (platform === 'threads') {
-    // Official Threads OAuth 2.0 Authorization Endpoint (does not use Facebook Login config_id)
-    const scopes = 'threads_basic,threads_content_publish';
+    // Official Threads OAuth 2.0 Authorization Endpoint
+    const scopes = 'threads_basic,threads_content_publish,threads_manage_insights,threads_read_replies,threads_manage_replies';
     return `https://threads.net/oauth/authorize?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
   }
 
+  if (platform === 'instagram_direct') {
+    // Direct Instagram Business OAuth (independent of Facebook Page / Business Portfolio)
+    const scopes = 'instagram_business_basic,instagram_business_manage_comments,instagram_business_content_publish,instagram_business_manage_insights';
+    return `https://www.instagram.com/oauth/authorize/third_party/?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${encodeURIComponent(state)}`;
+  }
+
+  // Standard Facebook & Instagram-via-Facebook authorization (Identical to Pubblie.io)
+  // We strictly avoid passing config_id to prevent Meta from forcing Business Portfolio selection!
   let scopes = [
     'pages_show_list',
     'pages_read_engagement',
     'pages_manage_posts',
     'pages_manage_engagement',
     'pages_read_user_content',
+    'pages_manage_metadata',
     'read_insights',
-    'business_management',
     'public_profile'
   ];
 
@@ -116,15 +124,8 @@ function buildMetaAuthorizationUrl({ appId, redirectUri, platform, state, config
   }
 
   const scopeString = scopes.join(',');
-  let url = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest`;
-
-  if (configId) {
-    url += `&config_id=${encodeURIComponent(configId)}`;
-  } else {
-    url += `&scope=${encodeURIComponent(scopeString)}`;
-  }
-
-  return url;
+  // v22.0 matching Pubblie
+  return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&response_type=code&auth_type=rerequest&display=popup&scope=${encodeURIComponent(scopeString)}`;
 }
 
 /**
@@ -170,8 +171,42 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri, plat
     return finalToken;
   }
 
-  // Step 1: Exchange code for short-lived token on Facebook Graph API
-  const tokenRes = await axios.get('https://graph.facebook.com/v20.0/oauth/access_token', {
+  if (platform === 'instagram_direct') {
+    // Instagram Direct OAuth exchange
+    const form = new URLSearchParams();
+    form.append('client_id', appId);
+    form.append('client_secret', appSecret);
+    form.append('grant_type', 'authorization_code');
+    form.append('redirect_uri', redirectUri);
+    form.append('code', code);
+
+    const tokenRes = await axios.post('https://api.instagram.com/oauth/access_token', form.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+
+    const shortToken = tokenRes.data.access_token;
+    let finalToken = shortToken;
+
+    try {
+      const extendRes = await axios.get('https://graph.instagram.com/access_token', {
+        params: {
+          grant_type: 'ig_exchange_token',
+          client_secret: appSecret,
+          access_token: shortToken
+        }
+      });
+      if (extendRes.data?.access_token) {
+        finalToken = extendRes.data.access_token;
+      }
+    } catch (err) {
+      console.warn('[Instagram Direct] Impossibile estendere token a 60 giorni:', err.message);
+    }
+
+    return finalToken;
+  }
+
+  // Step 1: Exchange code for short-lived token on Facebook Graph API v22.0
+  const tokenRes = await axios.get('https://graph.facebook.com/v22.0/oauth/access_token', {
     params: {
       client_id: appId,
       client_secret: appSecret,
@@ -185,7 +220,7 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri, plat
 
   // Step 2: Exchange for long-lived 60-day token
   try {
-    const extendRes = await axios.get('https://graph.facebook.com/v20.0/oauth/access_token', {
+    const extendRes = await axios.get('https://graph.facebook.com/v22.0/oauth/access_token', {
       params: {
         grant_type: 'fb_exchange_token',
         client_id: appId,
@@ -193,7 +228,7 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri, plat
         fb_exchange_token: shortLivedToken
       }
     });
-    if (extendRes.data.access_token) {
+    if (extendRes.data?.access_token) {
       finalToken = extendRes.data.access_token;
     }
   } catch (err) {
@@ -202,6 +237,7 @@ async function exchangeCodeForTokens({ code, appId, appSecret, redirectUri, plat
 
   return finalToken;
 }
+
 
 /**
  * Fetch Pages and associated Instagram Business Accounts, or Threads Profile
@@ -225,7 +261,8 @@ async function fetchMetaAccounts({ userToken, platform }) {
         avatar_url: th.threads_profile_picture_url || '',
         category: 'Profilo Threads',
         access_token: userToken,
-        type: 'threads'
+        type: 'threads',
+        channel_type: 'profilo'
       }];
 
       return {
@@ -238,8 +275,40 @@ async function fetchMetaAccounts({ userToken, platform }) {
     }
   }
 
+  if (platform === 'instagram_direct') {
+    // Fetch Direct Instagram Account from graph.instagram.com v22.0
+    try {
+      const meRes = await axios.get('https://graph.instagram.com/v22.0/me', {
+        params: {
+          fields: 'user_id,username,name,account_type,profile_picture_url',
+          access_token: userToken
+        }
+      });
+      const ig = meRes.data;
+      const handleName = ig.username || 'instagram';
+      const selectable = [{
+        id: ig.user_id || ig.id,
+        name: ig.name || ig.username || 'Account Instagram',
+        handle: `@${handleName}`,
+        avatar_url: ig.profile_picture_url || '',
+        category: ig.account_type ? `Instagram (${ig.account_type})` : 'Instagram Business',
+        access_token: userToken,
+        type: 'instagram',
+        channel_type: 'business'
+      }];
+
+      return {
+        rawPagesCount: 1,
+        accounts: selectable
+      };
+    } catch (e) {
+      console.error('[Instagram Direct] Errore recupero profilo:', e.response?.data || e.message);
+      throw new Error(`Impossibile recuperare il profilo Instagram: ${e.response?.data?.error?.message || e.message}`);
+    }
+  }
+
   let pages = [];
-  let nextUrl = 'https://graph.facebook.com/v20.0/me/accounts';
+  let nextUrl = 'https://graph.facebook.com/v22.0/me/accounts';
   let params = {
     fields: 'id,name,access_token,category,picture{url},instagram_business_account{id,username,name,profile_picture_url}',
     access_token: userToken,
@@ -269,10 +338,15 @@ async function fetchMetaAccounts({ userToken, platform }) {
         avatar_url: p.picture?.data?.url || '',
         category: p.category || 'Pagina Facebook',
         access_token: p.access_token,
-        type: 'facebook'
+        type: 'facebook',
+        channel_type: 'pagina',
+        connected_instagram: p.instagram_business_account ? {
+          id: p.instagram_business_account.id,
+          username: p.instagram_business_account.username
+        } : null
       });
     });
-  } else if (platform === 'instagram') {
+  } else if (platform === 'instagram' || platform === 'instagram_direct') {
     pages.forEach(p => {
       if (p.instagram_business_account) {
         const ig = p.instagram_business_account;
@@ -283,7 +357,8 @@ async function fetchMetaAccounts({ userToken, platform }) {
           avatar_url: ig.profile_picture_url || p.picture?.data?.url || '',
           category: `Collegato alla Pagina "${p.name}"`,
           access_token: p.access_token,
-          type: 'instagram'
+          type: 'instagram',
+          channel_type: 'business'
         });
       }
     });
